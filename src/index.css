@@ -1,0 +1,87 @@
+:root {
+  --main-background: #000000;
+  --main-foreground: #ffffff;
+  --accent-color: #3498db;
+  --button-background: #090476;
+  --button-hover: #14175d;
+  --button-foreground: #ffffff;
+  --header-background: #000000;
+  --header-foreground: #ffffff;
+  --card-background: #0a0a0a;
+  --card-border: #1a1a1a;
+  --text-muted: #777777;
+  --heading-font: 'Montserrat', sans-serif;
+  --body-font: 'Montserrat', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--main-background);
+  color: var(--main-foreground);
+  font-family: var(--body-font);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+/* Utilities */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* 2-Column Mobile Product Grid Layout */
+.product-grid-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+@media (min-width: 768px) {
+  .product-grid-container {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 24px;
+  }
+}
+
+/* Responsive Hide for Desktop vs Mobile */
+@media (max-width: 767px) {
+  .d-none-mobile {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .d-md-none {
+    display: none !important;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb {
+  background: #222222;
+  border-radius: 4px;
+}
