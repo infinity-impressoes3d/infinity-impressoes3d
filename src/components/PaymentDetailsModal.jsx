@@ -1,8 +1,11 @@
 import React from 'react';
 import { X, CreditCard, QrCode, ShieldCheck } from 'lucide-react';
+import { formatPrice } from '../lib/formatters';
 
 export default function PaymentDetailsModal({ isOpen, onClose, price }) {
   if (!isOpen) return null;
+
+  const numPrice = Number(price || 0);
 
   return (
     <div style={{
@@ -27,18 +30,48 @@ export default function PaymentDetailsModal({ isOpen, onClose, price }) {
         position: 'relative',
         boxShadow: '0 20px 50px rgba(0,0,0,0.9)'
       }} onClick={(e) => e.stopPropagation()}>
+
+        {/* Small X Close Button in Top Right Corner */}
+        <button
+          onClick={onClose}
+          aria-label="Fechar modal"
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            backgroundColor: '#1a1a1a',
+            border: '1px solid #333333',
+            color: '#ffffff',
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            zIndex: 10
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.backgroundColor = '#e74c3c';
+            e.currentTarget.style.borderColor = '#e74c3c';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = '#1a1a1a';
+            e.currentTarget.style.borderColor = '#333333';
+          }}
+        >
+          <X size={18} />
+        </button>
         
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #222', paddingBottom: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #222', paddingBottom: '12px', paddingRight: '40px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <CreditCard size={22} color="#3498db" />
             <h3 style={{ fontSize: '18px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Formas de Pagamento
             </h3>
           </div>
-          <button onClick={onClose} style={{ color: '#888888', background: 'none', border: 'none', cursor: 'pointer' }}>
-            <X size={24} />
-          </button>
         </div>
 
         {/* Pix Section */}
@@ -58,7 +91,7 @@ export default function PaymentDetailsModal({ isOpen, onClose, price }) {
               PIX À VISTA
             </div>
             <div style={{ fontSize: '20px', fontWeight: '900', color: '#ffffff' }}>
-              R$ {price.toFixed(2).replace('.', ',')}
+              R$ {formatPrice(numPrice)}
             </div>
             <div style={{ fontSize: '11px', color: '#aaaaaa' }}>
               Aprovação instantânea do pedido e envio imediato
@@ -73,7 +106,7 @@ export default function PaymentDetailsModal({ isOpen, onClose, price }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginBottom: '20px' }}>
           {[1, 2, 3, 4, 5, 6, 10, 12].map((inst) => {
-            const instVal = price / inst;
+            const instVal = numPrice / inst;
             return (
               <div key={inst} style={{
                 backgroundColor: '#141414',
@@ -84,7 +117,7 @@ export default function PaymentDetailsModal({ isOpen, onClose, price }) {
                 fontSize: '12px'
               }}>
                 <span style={{ color: '#aaa' }}>{inst}x de</span>
-                <strong style={{ color: '#fff' }}>R$ {instVal.toFixed(2).replace('.', ',')}</strong>
+                <strong style={{ color: '#fff' }}>R$ {formatPrice(instVal)}</strong>
               </div>
             );
           })}

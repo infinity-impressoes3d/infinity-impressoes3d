@@ -17,6 +17,7 @@ import SizeGuideModal from './SizeGuideModal';
 import PaymentDetailsModal from './PaymentDetailsModal';
 import ProductCard from './ProductCard';
 import ShippingCalculator from './ShippingCalculator';
+import { formatPrice, handleImageError, renderFormattedDescription, DEFAULT_FALLBACK_IMAGE } from '../lib/formatters';
 
 export default function ProductPage({ product, allProducts, onAddToCart, onSelectProduct, onGoHome }) {
   const [selectedImage, setSelectedImage] = useState(product?.image || product?.gallery?.[0]);
@@ -270,32 +271,32 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
               {/* Main Price & Discount badge */}
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
                 <span style={{ fontSize: '28px', fontWeight: '900', color: '#ffffff' }}>
-                  R${product.price.toFixed(2).replace('.', ',')}
+                  R$ {formatPrice(product.price)}
                 </span>
-                {product.discount && (
+                {(product.discount || (product.oldPrice && Number(product.oldPrice) > Number(product.price))) && (
                   <span style={{
                     fontSize: '12px',
                     fontWeight: '800',
-                    color: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.15)',
+                    color: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.15)',
                     padding: '3px 8px',
                     borderRadius: '4px'
                   }}>
-                    -{product.discount}
+                    -{product.discount || `${Math.round(((Number(product.oldPrice) - Number(product.price)) / Number(product.oldPrice)) * 100)}% OFF`}
                   </span>
                 )}
               </div>
 
               {/* Original Crossed Price */}
-              {product.oldPrice && (
-                <div style={{ fontSize: '13px', color: '#666666', textDecoration: 'line-through', marginTop: '2px' }}>
-                  R${product.oldPrice.toFixed(2).replace('.', ',')}
+              {product.oldPrice && Number(product.oldPrice) > Number(product.price) && (
+                <div style={{ fontSize: '13px', color: '#888888', textDecoration: 'line-through', marginTop: '2px' }}>
+                  De: R$ {formatPrice(product.oldPrice)}
                 </div>
               )}
 
               {/* Installments & Details button */}
               <div style={{ fontSize: '12px', color: '#aaaaaa', marginTop: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>{product.installments || '10 x de R$ ' + (product.price / 10).toFixed(2).replace('.', ',')}</span>
+                <span>{product.installments || `10 x de R$ ${formatPrice(Number(product.price) / 10)}`}</span>
                 <button
                   onClick={() => setIsPaymentDetailsOpen(true)}
                   style={{
@@ -499,9 +500,9 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
                 Descrição do Produto
               </h3>
               
-              <p style={{ fontSize: '13px', color: '#cccccc', lineHeight: '1.6', marginBottom: '16px' }}>
-                {product.description}
-              </p>
+              <div style={{ marginBottom: '16px' }}>
+                {renderFormattedDescription(product.description)}
+              </div>
 
               {/* Technical Specifications list */}
               {product.specs && (

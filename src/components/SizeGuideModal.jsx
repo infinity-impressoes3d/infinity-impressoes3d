@@ -27,18 +27,48 @@ export default function SizeGuideModal({ isOpen, onClose }) {
         position: 'relative',
         boxShadow: '0 20px 50px rgba(0,0,0,0.9)'
       }} onClick={(e) => e.stopPropagation()}>
+
+        {/* Small X Close Button in Top Right Corner */}
+        <button
+          onClick={onClose}
+          aria-label="Fechar modal"
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            backgroundColor: '#1a1a1a',
+            border: '1px solid #333333',
+            color: '#ffffff',
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            zIndex: 10
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.backgroundColor = '#e74c3c';
+            e.currentTarget.style.borderColor = '#e74c3c';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.backgroundColor = '#1a1a1a';
+            e.currentTarget.style.borderColor = '#333333';
+          }}
+        >
+          <X size={18} />
+        </button>
         
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #222', paddingBottom: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #222', paddingBottom: '12px', paddingRight: '40px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Ruler size={22} color="#3498db" />
             <h3 style={{ fontSize: '18px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Guia de Medidas
             </h3>
           </div>
-          <button onClick={onClose} style={{ color: '#888888', hover: { color: '#fff' } }}>
-            <X size={24} />
-          </button>
         </div>
 
         <p style={{ fontSize: '13px', color: '#aaaaaa', marginBottom: '16px' }}>

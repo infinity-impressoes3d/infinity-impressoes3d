@@ -23,11 +23,35 @@ export default function SearchModal({ isOpen, onClose, products, onAddToCart, on
       padding: '40px 20px',
       overflowY: 'auto'
     }}>
-      <div className="container" style={{ width: '100%', maxWidth: '800px' }}>
+      <div className="container" style={{ width: '100%', maxWidth: '800px', position: 'relative' }}>
         {/* Header Close */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
-          <button onClick={onClose} style={{ color: '#ffffff' }}>
-            <X size={32} />
+          <button
+            onClick={onClose}
+            aria-label="Fechar busca"
+            style={{
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #333333',
+              color: '#ffffff',
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.backgroundColor = '#e74c3c';
+              e.currentTarget.style.borderColor = '#e74c3c';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.backgroundColor = '#1a1a1a';
+              e.currentTarget.style.borderColor = '#333333';
+            }}
+          >
+            <X size={20} />
           </button>
         </div>
 
@@ -79,7 +103,7 @@ export default function SearchModal({ isOpen, onClose, products, onAddToCart, on
                     key={prod.id}
                     product={prod}
                     onAddToCart={(item) => {
-                      onAddToCart(item);
+                      if (onAddToCart) onAddToCart(item);
                       onClose();
                     }}
                     onSelectProduct={(item) => {

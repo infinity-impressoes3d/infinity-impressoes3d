@@ -5,16 +5,24 @@ import { CATEGORIES } from '../data/products';
 
 export default function CollectionPage({
   categoryId,
+  category,
   allProducts,
+  products,
+  categories,
   onSelectProduct,
   onAddToCart,
   onGoHome,
   onSelectCategory
 }) {
+  const activeCatId = categoryId || category || 'todos';
+  const activeProducts = allProducts || products || [];
+  const activeCategoriesList = (categories && categories.length > 0) ? categories : CATEGORIES;
+
   // Active Category details
-  const categoryInfo = CATEGORIES.find(c => c.id === categoryId) || {
-    id: categoryId || 'todos',
-    name: categoryId === 'todos' ? 'TODAS AS COLEÇÕES' : (categoryId ? categoryId.toUpperCase() : 'COLEÇÃO EXCLUSIVA'),
+  const foundCat = activeCategoriesList.find(c => String(c.id) === String(activeCatId));
+  const categoryInfo = foundCat || {
+    id: activeCatId,
+    name: activeCatId === 'todos' ? 'TODAS AS COLEÇÕES' : (activeCatId ? activeCatId.toUpperCase() : 'COLEÇÃO EXCLUSIVA'),
     tag: 'EXPLORE NOSSOS PRODUTOS'
   };
 
@@ -26,9 +34,13 @@ export default function CollectionPage({
 
   // Base products filtered by category
   const baseCategoryProducts = useMemo(() => {
-    if (!categoryId || categoryId === 'todos') return allProducts;
-    return allProducts.filter(p => p.category === categoryId);
-  }, [categoryId, allProducts]);
+    if (!activeCatId || activeCatId === 'todos') return activeProducts;
+    return activeProducts.filter(p => 
+      String(p.category) === String(activeCatId) || 
+      (Array.isArray(p.collectionIds) && p.collectionIds.includes(activeCatId)) ||
+      String(p.collection_id) === String(activeCatId)
+    );
+  }, [activeCatId, activeProducts]);
 
   // Handle Price Filter Submit
   const handleApplyPrice = (e) => {
@@ -145,18 +157,18 @@ export default function CollectionPage({
           marginBottom: '28px',
           borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
         }}>
-          {CATEGORIES.map((cat) => (
+          {activeCategoriesList.map((cat) => (
             <button
               key={cat.id}
-              onClick={() => onSelectCategory(cat.id)}
+              onClick={() => onSelectCategory && onSelectCategory(cat.id)}
               style={{
                 padding: '8px 18px',
                 borderRadius: '20px',
                 fontSize: '12px',
                 fontWeight: '700',
-                backgroundColor: categoryId === cat.id ? '#090476' : '#111111',
+                backgroundColor: String(activeCatId) === String(cat.id) ? '#090476' : '#111111',
                 color: '#ffffff',
-                border: categoryId === cat.id ? '1px solid #3498db' : '1px solid #222222',
+                border: String(activeCatId) === String(cat.id) ? '1px solid #3498db' : '1px solid #222222',
                 whiteSpace: 'nowrap',
                 transition: 'all 0.2s',
                 cursor: 'pointer'

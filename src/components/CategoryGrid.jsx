@@ -1,25 +1,38 @@
 import React, { useRef, useEffect } from 'react';
-import { CATEGORIES } from '../data/products';
+import { CATEGORIES as FALLBACK_CATEGORIES } from '../data/products';
 
-export default function CategoryGrid({ onSelectCategory }) {
+export default function CategoryGrid({ onSelectCategory, categories = [] }) {
   const scrollRef = useRef(null);
+
+  // Filtra coleções marcadas como destaque na home se houver alguma, senão exibe todas as ativas
+  let activeCategories = categories && categories.length > 0 
+    ? categories.filter(c => c.isFeaturedHome)
+    : [];
+
+  if (activeCategories.length === 0 && categories && categories.length > 0) {
+    activeCategories = categories;
+  }
+
+  if (activeCategories.length === 0) {
+    activeCategories = FALLBACK_CATEGORIES;
+  }
 
   // Quadrupled categories array for mobile infinite drag loop
   const infiniteCategories = [
-    ...CATEGORIES,
-    ...CATEGORIES,
-    ...CATEGORIES,
-    ...CATEGORIES
+    ...activeCategories,
+    ...activeCategories,
+    ...activeCategories,
+    ...activeCategories
   ];
 
   // Set initial scroll position for mobile loop
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
+    if (el && activeCategories.length > 0) {
       const singleSetWidth = el.scrollWidth / 4;
       el.scrollLeft = singleSetWidth;
     }
-  }, []);
+  }, [categories, activeCategories.length]);
 
   // Seamless infinite drag loop for mobile touch swipe
   const handleScroll = () => {
@@ -45,7 +58,7 @@ export default function CategoryGrid({ onSelectCategory }) {
     <section style={{ padding: '20px 0 28px 0', backgroundColor: '#000000', overflow: 'hidden' }}>
       <div className="container" style={{ padding: '0 12px' }}>
         
-        {/* MOBILE VIEW (screens < 768px): Horizontal Infinite Drag Loop */}
+        {/* MOBILE VIEW (screens < 768px): Horizontal Infinite Drag Loop (Quadrados 1:1) */}
         <div className="d-md-none" style={{ position: 'relative' }}>
           <div
             ref={scrollRef}
@@ -69,7 +82,8 @@ export default function CategoryGrid({ onSelectCategory }) {
                 style={{
                   flex: '0 0 145px',
                   width: '145px',
-                  height: '150px',
+                  height: '145px',
+                  aspectRatio: '1 / 1',
                   textDecoration: 'none',
                   position: 'relative',
                   borderRadius: '18px',
@@ -107,7 +121,7 @@ export default function CategoryGrid({ onSelectCategory }) {
                   textAlign: 'center'
                 }}>
                   <h3 style={{
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: '900',
                     color: '#ffffff',
                     letterSpacing: '0.5px',
@@ -124,24 +138,26 @@ export default function CategoryGrid({ onSelectCategory }) {
           </div>
         </div>
 
-        {/* DESKTOP / TABLET VIEW (screens >= 768px): Only the 3 Collections Centered */}
+        {/* DESKTOP / TABLET VIEW (screens >= 768px): Centered Collections Grid (Quadrados Perfeitos 1:1) */}
         <div className="d-none-mobile" style={{
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          gap: '24px',
-          maxWidth: '900px',
+          flexWrap: 'wrap',
+          gap: '20px',
+          maxWidth: '1200px',
           margin: '0 auto'
         }}>
-          {CATEGORIES.map((cat) => (
+          {activeCategories.map((cat) => (
             <a
               key={cat.id}
               href={`#/colecao/${cat.id}`}
               onClick={(e) => handleCategoryClick(cat.id, e)}
               style={{
-                flex: '1 1 0',
-                maxWidth: '240px',
-                height: '210px',
+                flex: '0 0 220px',
+                width: '220px',
+                height: '220px',
+                aspectRatio: '1 / 1',
                 textDecoration: 'none',
                 position: 'relative',
                 borderRadius: '22px',
@@ -197,7 +213,7 @@ export default function CategoryGrid({ onSelectCategory }) {
                 textAlign: 'center'
               }}>
                 <h3 style={{
-                  fontSize: '16px',
+                  fontSize: '15px',
                   fontWeight: '900',
                   color: '#ffffff',
                   letterSpacing: '0.8px',

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShoppingBag } from 'lucide-react';
+import { formatPrice, handleImageError, DEFAULT_FALLBACK_IMAGE } from '../lib/formatters';
 
 export default function ProductCard({ product, onAddToCart, onSelectProduct }) {
 
@@ -15,6 +16,11 @@ export default function ProductCard({ product, onAddToCart, onSelectProduct }) {
       onSelectProduct(product);
     }
   };
+
+  const priceNum = Number(product.price || 0);
+  const oldPriceNum = product.oldPrice ? Number(product.oldPrice) : null;
+  const hasDiscount = oldPriceNum && oldPriceNum > priceNum;
+  const discountBadge = product.discount || (hasDiscount ? `${Math.round(((oldPriceNum - priceNum) / oldPriceNum) * 100)}% OFF` : null);
 
   return (
     <div
@@ -57,9 +63,28 @@ export default function ProductCard({ product, onAddToCart, onSelectProduct }) {
           </span>
         )}
 
+        {discountBadge && (
+          <span style={{
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            backgroundColor: '#e74c3c',
+            color: '#ffffff',
+            fontSize: '9px',
+            fontWeight: '900',
+            padding: '3px 6px',
+            borderRadius: '3px',
+            zIndex: 2,
+            letterSpacing: '0.5px'
+          }}>
+            -{discountBadge}
+          </span>
+        )}
+
         <img
-          src={product.image}
+          src={product.image || DEFAULT_FALLBACK_IMAGE}
           alt={product.name}
+          onError={handleImageError}
           style={{
             position: 'absolute',
             inset: 0,
@@ -99,38 +124,27 @@ export default function ProductCard({ product, onAddToCart, onSelectProduct }) {
             fontWeight: '900',
             color: '#ffffff'
           }}>
-            R${product.price.toFixed(2).replace('.', ',')}
+            R$ {formatPrice(priceNum)}
           </span>
-          {product.discount && (
-            <span style={{
-              fontSize: '11px',
-              fontWeight: '700',
-              color: '#3498db'
-            }}>
-              -{product.discount}
-            </span>
-          )}
         </div>
 
-        {/* Strikethrough Price */}
-        {product.oldPrice && (
+        {/* Strikethrough Old Price */}
+        {hasDiscount && (
           <div style={{
             fontSize: '11px',
-            color: '#666666',
+            color: '#888888',
             textDecoration: 'line-through'
           }}>
-            R${product.oldPrice.toFixed(2).replace('.', ',')}
+            De: R$ {formatPrice(oldPriceNum)}
           </div>
         )}
-
-
 
         {/* Installment Info */}
         <div style={{
           fontSize: '11px',
           color: '#aaaaaa'
         }}>
-          {product.installments || '10 x de R$ ' + (product.price / 10).toFixed(2).replace('.', ',')}
+          {product.installments || `10 x de R$ ${formatPrice(priceNum / 10)}`}
         </div>
 
         {/* COMPRAR Button -> Opens Product Detail Page */}
@@ -146,10 +160,12 @@ export default function ProductCard({ product, onAddToCart, onSelectProduct }) {
             letterSpacing: '0.5px',
             padding: '8px 0',
             borderRadius: '4px',
+            border: 'none',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: '6px',
+            cursor: 'pointer',
             transition: 'background-color 0.2s'
           }}
           onMouseOver={(e) => {

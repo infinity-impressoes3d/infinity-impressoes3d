@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
+import { formatPrice, handleImageError, DEFAULT_FALLBACK_IMAGE } from '../lib/formatters';
 
-export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantity, onRemoveItem, onCheckout }) {
+export default function CartDrawer({ isOpen, onClose, cartItems, items, onUpdateQuantity, onRemoveItem, onCheckout, onOpenCheckout }) {
+  const handleCheckout = onCheckout || onOpenCheckout;
   const [cep, setCep] = useState('');
   const [shippingCost, setShippingCost] = useState(null);
 
+  const activeCartItems = cartItems || items || [];
+
   if (!isOpen) return null;
 
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = activeCartItems.reduce((sum, item) => sum + Number(item.price || 0) * item.quantity, 0);
 
   const handleCalculateShipping = (e) => {
     e.preventDefault();
@@ -67,17 +71,42 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantit
               padding: '2px 8px',
               borderRadius: '12px'
             }}>
-              {cartItems.reduce((acc, curr) => acc + curr.quantity, 0)} itens
+              {activeCartItems.reduce((acc, curr) => acc + curr.quantity, 0)} itens
             </span>
           </div>
-          <button onClick={onClose} style={{ color: '#ffffff', background: 'none', border: 'none', cursor: 'pointer' }}>
-            <X size={24} />
+
+          <button
+            onClick={onClose}
+            aria-label="Fechar carrinho"
+            style={{
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #333333',
+              color: '#ffffff',
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.backgroundColor = '#e74c3c';
+              e.currentTarget.style.borderColor = '#e74c3c';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.backgroundColor = '#1a1a1a';
+              e.currentTarget.style.borderColor = '#333333';
+            }}
+          >
+            <X size={18} />
           </button>
         </div>
 
         {/* Cart Items List */}
         <div style={{ flexGrow: 1, overflowY: 'auto', padding: '20px' }}>
-          {cartItems.length === 0 ? (
+          {activeCartItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 0', color: '#666666' }}>
               <ShoppingBag size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
               <p style={{ fontSize: '14px', fontWeight: '600' }}>Seu carrinho está vazio.</p>
@@ -99,7 +128,7 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantit
               </button>
             </div>
           ) : (
-            cartItems.map((item, idx) => (
+            activeCartItems.map((item, idx) => (
               <div
                 key={`${item.id}-${item.selectedSize}-${idx}`}
                 style={{
@@ -111,8 +140,9 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantit
                 }}
               >
                 <img
-                  src={item.image}
+                  src={item.image || DEFAULT_FALLBACK_IMAGE}
                   alt={item.name}
+                  onError={handleImageError}
                   style={{
                     width: '70px',
                     height: '70px',
@@ -156,7 +186,7 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantit
                     </div>
 
                     <span style={{ fontSize: '13px', fontWeight: '900', color: '#ffffff' }}>
-                      R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}
+                      R$ {formatPrice(Number(item.price || 0) * item.quantity)}
                     </span>
 
                     <button
@@ -214,7 +244,7 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantit
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#aaaaaa', marginBottom: '10px' }}>
                 <span>Frete Estimado:</span>
                 <span style={{ color: '#ffffff', fontWeight: '700' }}>
-                  R$ {shippingCost.toFixed(2).replace('.', ',')}
+                  R$ {formatPrice(shippingCost)}
                 </span>
               </div>
             )}
@@ -229,14 +259,14 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onUpdateQuantit
             }}>
               <span style={{ fontSize: '14px', fontWeight: '700', color: '#ffffff' }}>SUBTOTAL:</span>
               <span style={{ fontSize: '20px', fontWeight: '900', color: '#ffffff' }}>
-                R$ {(subtotal + (shippingCost || 0)).toFixed(2).replace('.', ',')}
+                R$ {formatPrice(subtotal + (shippingCost || 0))}
               </span>
             </div>
 
             <button
               onClick={() => {
                 onClose();
-                if (onCheckout) onCheckout();
+                if (handleCheckout) handleCheckout();
               }}
               style={{
                 width: '100%',

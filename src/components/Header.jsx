@@ -8,8 +8,13 @@ export default function Header({
   onOpenSearch,
   onGoHome,
   onSelectProduct,
-  onSelectCategory
+  onSelectCategory,
+  products = [],
+  categories = []
 }) {
+  const headerProducts = products && products.length > 0 ? products : PRODUCTS;
+  const headerCategories = categories && categories.length > 0 ? categories : CATEGORIES;
+
   const [activeDropdown, setActiveDropdown] = useState(null); // 'products' | 'collections' | null
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileProductsOpen, setMobileProductsOpen] = useState(false);
@@ -150,7 +155,7 @@ export default function Header({
                 </div>
 
                 <div style={{ maxHeight: '360px', overflowY: 'auto', padding: '6px 0' }}>
-                  {PRODUCTS.map((prod) => (
+                  {headerProducts.map((prod) => (
                     <a
                       key={prod.id}
                       href={`#/produto/${prod.id}`}
@@ -257,7 +262,7 @@ export default function Header({
                 </div>
 
                 <div style={{ padding: '6px 0' }}>
-                  {CATEGORIES.map((cat) => (
+                  {headerCategories.map((cat) => (
                     <a
                       key={cat.id}
                       href={`#/colecao/${cat.id}`}
@@ -554,7 +559,7 @@ export default function Header({
               {/* Sub-items for Products */}
               {mobileProductsOpen && (
                 <div style={{ backgroundColor: '#080808', borderBottom: '1px solid #141414' }}>
-                  {PRODUCTS.map((prod) => (
+                  {headerProducts.map((prod) => (
                     <div
                       key={prod.id}
                       onClick={() => {
@@ -606,7 +611,7 @@ export default function Header({
               {/* Sub-items for Collections */}
               {mobileCollectionsOpen && (
                 <div style={{ backgroundColor: '#080808', borderBottom: '1px solid #141414' }}>
-                  {CATEGORIES.map((cat) => (
+                  {headerCategories.map((cat) => (
                     <div
                       key={cat.id}
                       onClick={() => {

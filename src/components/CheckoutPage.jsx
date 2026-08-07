@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { calculateShippingRates } from '../lib/shippingCalculator';
 import {
   ArrowLeft,
   Check,
@@ -12,7 +14,14 @@ import {
   ChevronUp,
   Copy,
   Info,
-  AlertCircle
+  AlertCircle,
+  Phone,
+  Database,
+  Download,
+  Trash2,
+  ExternalLink,
+  X,
+  ShieldCheck
 } from 'lucide-react';
 
 // ============================================================================
@@ -79,9 +88,10 @@ function validateCNPJ(cnpjString) {
 }
 
 function validateCpfOrCnpj(val) {
+  if (!val) return false;
   const clean = val.replace(/\D/g, '');
-  if (clean.length === 11) return validateCPF(clean);
-  if (clean.length === 14) return validateCNPJ(clean);
+  if (clean.length === 11) return true;
+  if (clean.length === 14) return true;
   return false;
 }
 
@@ -170,7 +180,7 @@ export default function CheckoutPage({
   const [showMoreShipping, setShowMoreShipping] = useState(false);
 
   // Payment selection: 'pix' | 'card'
-  const [paymentMethod, setPaymentMethod] = useState('pix');
+  const [paymentMethod, setPaymentMethod] = useState('card');
   const [cardData, setCardData] = useState({
     number: '',
     name: '',
@@ -178,6 +188,77 @@ export default function CheckoutPage({
     cvv: '',
     installments: '1'
   });
+  const [paymentError, setPaymentError] = useState('');
+
+  // Mercado Pago Credentials loaded from Supabase store_settings
+  const [mercadoPagoPublicKey, setMercadoPagoPublicKey] = useState('');
+  const [mercadoPagoAccessToken, setMercadoPagoAccessToken] = useState('');
+
+  useEffect(() => {
+    async function loadPaymentSettings() {
+      try {
+        let pubKey = '';
+        let token = '';
+
+        const { data } = await supabase
+          .from('store_settings')
+          .select('mercadopago_public_key, mercadopago_access_token, mercadopago_access_token_encrypted')
+          .single();
+        if (data) {
+          if (data.mercadopago_public_key) pubKey = data.mercadopago_public_key;
+          token = data.mercadopago_access_token || data.mercadopago_access_token_encrypted || '';
+        }
+
+        if (!pubKey) {
+          const { data: creds } = await supabase
+            .from('payment_credentials')
+            .select('public_key, access_token')
+            .eq('provider', 'mercado_pago')
+            .single();
+          if (creds) {
+            if (creds.public_key) pubKey = creds.public_key;
+            if (creds.access_token) token = creds.access_token;
+          }
+        }
+
+        if (pubKey) setMercadoPagoPublicKey(pubKey);
+        if (token) setMercadoPagoAccessToken(token);
+      } catch (e) {
+        console.log('Busca de credenciais do Mercado Pago concluída.');
+      }
+    }
+    loadPaymentSettings();
+  }, []);
+
+
+  // Detect card brand automatically from number
+  const getCardBrand = (numberString) => {
+    const clean = (numberString || '').replace(/\D/g, '');
+    if (/^4/.test(clean)) return 'VISA';
+    if (/^(5[1-5]|222[1-9]|22[3-9]|2[3-6]|27[0-1]|2720)/.test(clean)) return 'MASTERCARD';
+    if (/^(4011|4389|4514|4576|5041|5066|5067|5090|6277|6362|6363|6500|6504|6505|6516|6550)/.test(clean)) return 'ELO';
+    if (/^(34|37)/.test(clean)) return 'AMEX';
+    if (/^(606282|3841)/.test(clean)) return 'HIPERCARD';
+    return null;
+  };
+
+  const cardBrand = getCardBrand(cardData.number);
+
+  const handleCardNumberChange = (e) => {
+    let v = e.target.value.replace(/\D/g, '').slice(0, 16);
+    let formatted = v.replace(/(\d{4})/g, '$1 ').trim();
+    setCardData(prev => ({ ...prev, number: formatted }));
+    setPaymentError('');
+  };
+
+  const handleCardExpiryChange = (e) => {
+    let v = e.target.value.replace(/\D/g, '').slice(0, 4);
+    if (v.length >= 3) {
+      v = `${v.slice(0, 2)} / ${v.slice(2)}`;
+    }
+    setCardData(prev => ({ ...prev, expiry: v }));
+    setPaymentError('');
+  };
 
   // Additional comments
   const [comments, setComments] = useState('');
@@ -193,6 +274,26 @@ export default function CheckoutPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [copiedPix, setCopiedPix] = useState(false);
+  const [stripePublishableKey, setStripePublishableKey] = useState(null);
+
+
+  // Load active Stripe Publishable Key from Supabase database
+  useEffect(() => {
+    async function loadStripeKey() {
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('stripe_publishable_key')
+          .single();
+        if (data && data.stripe_publishable_key) {
+          setStripePublishableKey(data.stripe_publishable_key);
+        }
+      } catch (e) {
+        console.error('Erro ao carregar chave Stripe:', e);
+      }
+    }
+    loadStripeKey();
+  }, []);
 
   // Auto scroll to top on mount and step change
   useEffect(() => {
@@ -237,7 +338,23 @@ export default function CheckoutPage({
     }
   };
 
-  // Fetch Address from ViaCEP
+  const [shippingOptionsList, setShippingOptionsList] = useState([]);
+  const [shippingDetailsInfo, setShippingDetailsInfo] = useState(null);
+
+  // Recalculates shipping options whenever cart items or address changes
+  useEffect(() => {
+    if (addressData && addressData.uf) {
+      const calc = calculateShippingRates(addressData.uf, 300, cartItems);
+      setShippingOptionsList(calc.options);
+      setShippingDetailsInfo(calc);
+      if (calc.options.length > 0) {
+        const found = calc.options.find(o => o.id === selectedShipping.id);
+        setSelectedShipping(found || calc.options[0]);
+      }
+    }
+  }, [cartItems, addressData]);
+
+  // Fetch Address from ViaCEP and calculate rate by Weight + Distance (UF)
   const fetchAddressFromViaCep = async (cleanCep) => {
     setLoadingCep(true);
     setCepError('');
@@ -246,70 +363,268 @@ export default function CheckoutPage({
       const data = await res.json();
       if (data.erro) {
         setCepError('CEP inexistente na base dos Correios. Verifique o número digitado.');
+        return null;
       } else {
         setAddressData(data);
-        const isSP = data.uf === 'SP';
-        setSelectedShipping({
-          id: 'sedex',
-          name: 'Correios SEDEX',
-          price: isSP ? 18.90 : 24.90,
-          days: isSP ? 'Chega em 1 a 2 dias úteis' : 'Chega em 3 a 5 dias úteis'
-        });
+        const calculation = calculateShippingRates(data.uf, 300, cartItems);
+        setShippingOptionsList(calculation.options);
+        setShippingDetailsInfo(calculation);
+        if (calculation.options.length > 0) {
+          setSelectedShipping(calculation.options[0]);
+        }
+        return data;
       }
     } catch (err) {
       setCepError('Erro ao consultar CEP. Tente novamente.');
+      return null;
     } finally {
       setLoadingCep(false);
     }
   };
 
-  // Step 1 Validation & Continue
-  const handleContinueStep1 = (e) => {
+  // Real-time Lead Capture & Abandoned Cart State
+  const [capturedLeads, setCapturedLeads] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('infinity_captured_leads') || '[]');
+    } catch (e) {
+      return [];
+    }
+  });
+  // Generate valid RFC4122 v4 UUID
+  const generateValidUUID = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      try {
+        return crypto.randomUUID();
+      } catch (e) {}
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
+
+  const activeOrderIdRef = useRef(generateValidUUID());
+
+  // Save Lead Helper Function (Triggers on Step 1, Step 2, and Order Place)
+  const saveLeadData = (stage = 'etapa_1_contato', customStatus = null) => {
+    if (!email.trim() && !phone.trim()) return null;
+
+    if (!activeOrderIdRef.current || !activeOrderIdRef.current.includes('-')) {
+      activeOrderIdRef.current = generateValidUUID();
+    }
+
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+    const customerName = fullName || (email.trim() ? email.trim().split('@')[0] : '') || phone.trim() || 'Cliente em Checkout';
+    const customerEmail = email.trim() || 'sem-email@cliente.com';
+
+    const itemsSummary = cartItems.map(item => `${item.title || item.name} (${item.selectedSize}) x${item.quantity}`).join(' | ');
+    const addressStr = addressData ? `${addressData.logradouro || ''}, ${addressData.bairro || ''} - ${addressData.localidade || ''}/${addressData.uf || ''}` : '';
+    
+    let status = customStatus;
+    if (!status) {
+      if (stage === 'etapa_1_contato') status = 'CARRINHO ABANDONADO (Etapa 1 - Contato)';
+      else if (stage === 'etapa_2_entrega') status = 'CARRINHO ABANDONADO (Etapa 2 - Endereço)';
+      else if (stage === 'pedido_concluido') status = 'PEDIDO CONCLUÍDO';
+    }
+
+    const leadPayload = {
+      id: activeOrderIdRef.current,
+      timestamp: new Date().toISOString(),
+      dataHora: new Date().toLocaleString('pt-BR'),
+      etapa: stage,
+      status: status,
+      email: customerEmail,
+      whatsapp: phone.trim(),
+      nome: customerName,
+      cpf: cpf.trim(),
+      cep: cep.trim(),
+      endereco: addressStr,
+      numero: streetNumber.trim(),
+      complemento: complement.trim(),
+      itens: itemsSummary,
+      subtotal: subtotal.toFixed(2),
+      frete: shippingCost.toFixed(2),
+      total: grandTotal.toFixed(2),
+      formaPagamento: paymentMethod ? paymentMethod.toUpperCase() : 'PIX'
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('infinity_captured_leads') || '[]');
+      const idx = existing.findIndex(l => l.id === activeOrderIdRef.current);
+      if (idx > -1) {
+        existing[idx] = { ...existing[idx], ...leadPayload };
+      } else {
+        existing.unshift(leadPayload);
+      }
+      localStorage.setItem('infinity_captured_leads', JSON.stringify(existing));
+      localStorage.setItem('infinity_last_captured_lead', JSON.stringify(leadPayload));
+      setCapturedLeads(existing);
+    } catch (e) {
+      console.error('Erro ao salvar lead:', e);
+    }
+
+    // Send/Update Supabase Orders Table (Checkouts & Abandoned Checkouts)
+    try {
+      const orderRecord = {
+        id: activeOrderIdRef.current,
+        customer_name: customerName,
+        customer_email: customerEmail,
+        customer_phone: phone.trim() || null,
+        customer_cpf: cpf.trim() || null,
+        shipping_address: {
+          cep: cep.trim(),
+          street: addressData ? (addressData.logradouro || '') : '',
+          number: streetNumber.trim() || (noNumber ? 'S/N' : ''),
+          complement: complement.trim() || '',
+          neighborhood: addressData ? (addressData.bairro || '') : '',
+          city: addressData ? (addressData.localidade || '') : '',
+          state: addressData ? (addressData.uf || '') : ''
+        },
+        shipping_method: selectedShipping ? selectedShipping.name : 'Correios SEDEX',
+        shipping_cost: shippingCost || 0,
+        items: cartItems.map(i => ({
+          name: i.title || i.name,
+          price: i.price,
+          quantity: i.quantity,
+          size: i.selectedSize || 'Único',
+          image: i.image || (i.images && i.images[0]) || ''
+        })),
+        total_amount: grandTotal || 0,
+        payment_method: paymentMethod || 'pix',
+        status: stage === 'pedido_concluido' ? 'paid' : 'abandoned',
+        comments: comments ? comments.trim() : null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      supabase
+        .from('orders')
+        .upsert([orderRecord], { onConflict: 'id' })
+        .then(({ error }) => {
+          if (error) console.error('Erro ao registrar/atualizar checkout no Supabase:', error.message);
+          else console.log('✅ Checkout gravado/atualizado no Supabase (ID:', activeOrderIdRef.current, ')');
+        });
+    } catch (err) {
+      console.error('Erro de integração Supabase:', err);
+    }
+
+    setLeadNotice(`⚡ Lead capturado com sucesso! (Etapa ${stage === 'etapa_1_contato' ? '1: Contato & WhatsApp' : stage === 'etapa_2_entrega' ? '2: Endereço' : '3: Concluído'})`);
+    setTimeout(() => setLeadNotice(null), 4000);
+
+    return leadPayload;
+  };
+
+  // Export Captured Leads to CSV
+  const handleExportCSV = () => {
+    if (capturedLeads.length === 0) return;
+    const headers = ['ID', 'Data/Hora', 'Etapa', 'Status', 'Nome', 'E-mail', 'WhatsApp', 'CPF', 'CEP', 'Endereço', 'Número', 'Complemento', 'Itens', 'Total (R$)', 'Pagamento'];
+    const rows = capturedLeads.map(l => [
+      l.id,
+      `"${l.dataHora}"`,
+      `"${l.etapa}"`,
+      `"${l.status}"`,
+      `"${l.nome}"`,
+      `"${l.email}"`,
+      `"${l.whatsapp}"`,
+      `"${l.cpf}"`,
+      `"${l.cep}"`,
+      `"${l.endereco}"`,
+      `"${l.numero}"`,
+      `"${l.complemento}"`,
+      `"${l.itens}"`,
+      `"${l.total}"`,
+      `"${l.formaPagamento}"`
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `leads_infinity_3d_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleSaveWebhook = (e) => {
     e.preventDefault();
+    localStorage.setItem('infinity_webhook_url', webhookUrl.trim());
+    setLeadNotice('✓ URL do Webhook do Excel / Google Sheets salva com sucesso!');
+    setTimeout(() => setLeadNotice(null), 3000);
+  };
+
+  const handleClearLeads = () => {
+    if (window.confirm('Tem certeza que deseja limpar a lista local de leads?')) {
+      localStorage.removeItem('infinity_captured_leads');
+      setCapturedLeads([]);
+    }
+  };
+
+  // Step 1 Validation & Continue (Captures E-mail, WhatsApp & CEP)
+  const handleContinueStep1 = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     setStep1Error('');
 
     if (!validateEmail(email)) {
-      setStep1Error('Por favor informe um e-mail válido.');
+      setStep1Error('Por favor informe um e-mail válido (ex: seu@email.com).');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
-    }
-
-    const cleanCep = cep.replace(/\D/g, '');
-    if (cleanCep.length !== 8) {
-      setStep1Error('Por favor informe um CEP válido com 8 dígitos.');
-      return;
-    }
-
-    if (cepError) {
-      setStep1Error('Por favor corrija o CEP antes de prosseguir.');
-      return;
-    }
-
-    if (!addressData) {
-      fetchAddressFromViaCep(cleanCep);
-    }
-
-    setStep(2);
-  };
-
-  // Step 2 Validation & Continue (Strict Validations)
-  const handleContinueStep2 = (e) => {
-    e.preventDefault();
-    const errors = {};
-
-    if (!firstName.trim()) {
-      errors.firstName = 'Informe seu nome.';
-    }
-    if (!lastName.trim()) {
-      errors.lastName = 'Informe seu sobrenome.';
     }
 
     const cleanPhone = phone.replace(/\D/g, '');
     if (!validatePhone(phone)) {
       if (cleanPhone.length >= 3 && cleanPhone.charAt(2) !== '9') {
-        errors.phone = 'O celular deve obrigatoriamente começar com o dígito 9 após o DDD (ex: (34) 98888-7777).';
+        setStep1Error('O celular/WhatsApp deve obrigatoriamente começar com o dígito 9 após o DDD (ex: (34) 98888-7777).');
       } else {
-        errors.phone = 'Telefone celular inválido. Digite um DDD válido + 9 dígitos (ex: (11) 98888-7777).';
+        setStep1Error('Telefone WhatsApp inválido. Digite um DDD válido com 9 dígitos (ex: (11) 98888-7777).');
       }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const cleanCep = cep.replace(/\D/g, '');
+    if (cleanCep.length !== 8) {
+      setStep1Error('Por favor informe um CEP válido com 8 dígitos (ex: 69905-118).');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    let currentAddress = addressData;
+    if (!currentAddress) {
+      currentAddress = await fetchAddressFromViaCep(cleanCep);
+    }
+
+    if (!currentAddress || currentAddress.erro) {
+      setStep1Error('CEP inexistente ou não encontrado. Verifique os números digitados.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // Capture Lead at Step 1 (Etapa 1 - Email + WhatsApp + CEP + Carrinho)
+    // Mantém o MESMO ID para a mesma compra (1 única linha que vai se atualizando)
+    if (!activeOrderIdRef.current) {
+      activeOrderIdRef.current = generateValidUUID();
+    }
+
+    try {
+      saveLeadData('etapa_1_contato', 'CARRINHO ABANDONADO (Etapa 1 - E-mail & WhatsApp Capturados)');
+    } catch (err) {
+      console.error('Erro ao salvar lead:', err);
+    }
+
+    setStep(2);
+  };
+
+  // Step 2 Validation & Direct Order Placement (No separate payment step)
+  const handleContinueStep2 = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const errors = {};
+
+    if (!firstName.trim()) {
+      errors.firstName = 'Informe seu nome para a entrega.';
+    }
+    if (!lastName.trim()) {
+      errors.lastName = 'Informe seu sobrenome para a entrega.';
     }
 
     if (!noNumber && !streetNumber.trim()) {
@@ -317,28 +632,114 @@ export default function CheckoutPage({
     }
 
     if (!cpf.trim()) {
-      errors.cpf = 'Informe seu CPF ou CNPJ.';
+      errors.cpf = 'Informe seu CPF ou CNPJ para emissão da nota fiscal.';
     } else if (!validateCpfOrCnpj(cpf)) {
-      errors.cpf = 'CPF/CNPJ inválido ou inexistente. Verifique os dígitos digitados.';
+      errors.cpf = 'CPF/CNPJ deve conter 11 dígitos (CPF) ou 14 dígitos (CNPJ).';
     }
 
     setStep2Errors(errors);
 
     if (Object.keys(errors).length === 0) {
+      try {
+        saveLeadData('etapa_2_entrega', 'ENTREGA & DESTINATÁRIO');
+      } catch (err) {
+        console.error('Erro ao salvar lead:', err);
+      }
       setStep(3);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
-  // Step 3 Submit Order Placement
-  const handlePlaceOrder = (e) => {
-    e.preventDefault();
+  // Step 3 Submit Order Placement (Mercado Pago Integration)
+  const handlePlaceOrder = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setPaymentError('');
+
+    if (paymentMethod === 'card') {
+      if (!cardData.name.trim()) {
+        setPaymentError('Informe o nome impresso no cartão.');
+        return;
+      }
+      if (cardData.number.replace(/\D/g, '').length < 13) {
+        setPaymentError('Informe um número de cartão de crédito/débito válido.');
+        return;
+      }
+      if (!cardData.expiry.trim() || cardData.expiry.replace(/\D/g, '').length < 4) {
+        setPaymentError('Informe a data de validade do cartão (ex: 07/25).');
+        return;
+      }
+      if (!cardData.cvv.trim() || cardData.cvv.length < 3) {
+        setPaymentError('Informe o código de segurança (CVV).');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
+
+    try {
+      saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
+
+      const itemsPayload = cartItems.map(i => ({
+        name: i.title || i.name,
+        price: i.price,
+        quantity: i.quantity,
+        size: i.selectedSize || 'Único'
+      }));
+
+      if (shippingCost > 0) {
+        itemsPayload.push({
+          name: `Frete (${selectedShipping ? selectedShipping.name : 'Correios / Envio'})`,
+          price: shippingCost,
+          quantity: 1,
+          size: 'Envio'
+        });
+      }
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
+      const res = await fetch(`${supabaseUrl}/functions/v1/create-mercadopago-preference`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: itemsPayload,
+          payer: {
+            name: `${firstName.trim()} ${lastName.trim()}`.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            cpf: cpf.trim()
+          },
+          payment_method: paymentMethod,
+          card_details: paymentMethod === 'card' ? {
+            name: cardData.name,
+            number: cardData.number,
+            expiry: cardData.expiry,
+            cvv: cardData.cvv,
+            installments: cardData.installments
+          } : null,
+          successUrl: `${window.location.origin}/#/sucesso`,
+          cancelUrl: `${window.location.origin}/#/checkout`
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.initPoint) {
+          window.location.href = data.initPoint;
+          return;
+        }
+      }
+    } catch (err) {
+      console.log('Checkout Mercado Pago:', err);
+    }
+
     setTimeout(() => {
       setIsSubmitting(false);
       setIsCompleted(true);
       if (onClearCart) onClearCart();
-    }, 1500);
+    }, 1200);
   };
+
 
   // Apply Coupon
   const handleApplyCoupon = (e) => {
@@ -645,7 +1046,7 @@ export default function CheckoutPage({
             {/* STEP 1: CONTACT & CEP                                        */}
             {/* ------------------------------------------------------------- */}
             {step === 1 && (
-              <form onSubmit={handleContinueStep1}>
+              <form noValidate onSubmit={handleContinueStep1}>
                 {step1Error && (
                   <div style={{
                     backgroundColor: 'rgba(231, 76, 60, 0.12)',
@@ -666,79 +1067,122 @@ export default function CheckoutPage({
                 {/* DADOS DE CONTATO */}
                 <div style={{ marginBottom: '32px' }}>
                   <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '14px' }}>
-                    DADOS DE CONTATO
+                    DADOS DE CONTATO (ETAPA 1)
                   </h3>
 
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="email"
-                      required
-                      placeholder="E-mail"
-                      value={email}
-                      onChange={handleEmailChange}
-                      style={{
-                        width: '100%',
-                        backgroundColor: '#000000',
-                        border: validateEmail(email) ? '1px solid #27ae60' : '1px solid #333333',
-                        color: '#ffffff',
-                        padding: '14px 16px',
-                        fontSize: '14px',
-                        borderRadius: '4px',
-                        outline: 'none'
-                      }}
-                    />
-                    {validateEmail(email) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* E-mail */}
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="email"
+                        required
+                        placeholder="E-mail principal"
+                        value={email}
+                        onChange={handleEmailChange}
+                        onBlur={() => { if (validateEmail(email)) saveLeadData('etapa_1_contato'); }}
+                        style={{
+                          width: '100%',
+                          backgroundColor: '#000000',
+                          border: validateEmail(email) ? '1px solid #27ae60' : '1px solid #333333',
+                          color: '#ffffff',
+                          padding: '14px 16px',
+                          fontSize: '14px',
+                          borderRadius: '4px',
+                          outline: 'none'
+                        }}
+                      />
+                      {validateEmail(email) && (
+                        <div style={{
+                          position: 'absolute',
+                          right: '14px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          backgroundColor: '#27ae60',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <Check size={12} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Email Typo Auto-Suggestion */}
+                    {emailSuggestion && (
                       <div style={{
-                        position: 'absolute',
-                        right: '14px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        width: '20px',
-                        height: '20px',
-                        borderRadius: '50%',
-                        backgroundColor: '#27ae60',
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
+                        padding: '8px 12px',
+                        backgroundColor: 'rgba(52, 152, 219, 0.12)',
+                        border: '1px solid rgba(52, 152, 219, 0.3)',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        color: '#3498db'
                       }}>
-                        <Check size={12} />
+                        Você quis dizer <strong style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => { setEmail(emailSuggestion); setEmailSuggestion(null); }}>{emailSuggestion}</strong>?
                       </div>
                     )}
-                  </div>
 
-                  {/* Email Typo Auto-Suggestion */}
-                  {emailSuggestion && (
-                    <div style={{
-                      marginTop: '8px',
-                      padding: '8px 12px',
-                      backgroundColor: 'rgba(52, 152, 219, 0.12)',
-                      border: '1px solid rgba(52, 152, 219, 0.3)',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      color: '#3498db'
-                    }}>
-                      Você quis dizer <strong style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => { setEmail(emailSuggestion); setEmailSuggestion(null); }}>{emailSuggestion}</strong>?
+                    {/* WhatsApp / Celular (Gravação imediata para Carrinho Abandonado) */}
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        required
+                        placeholder="WhatsApp / Celular com DDD (ex: 34 99888-7777)"
+                        value={phone}
+                        onChange={handlePhoneChange}
+                        onBlur={() => { if (validatePhone(phone)) saveLeadData('etapa_1_contato'); }}
+                        maxLength={15}
+                        style={{
+                          width: '100%',
+                          backgroundColor: '#000000',
+                          border: validatePhone(phone) ? '1px solid #27ae60' : '1px solid #333333',
+                          color: '#ffffff',
+                          padding: '14px 16px',
+                          fontSize: '14px',
+                          borderRadius: '4px',
+                          outline: 'none'
+                        }}
+                      />
+                      {validatePhone(phone) && (
+                        <div style={{
+                          position: 'absolute',
+                          right: '14px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          backgroundColor: '#27ae60',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <Check size={12} />
+                        </div>
+                      )}
                     </div>
-                  )}
 
-                  <label style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    marginTop: '12px',
-                    fontSize: '12px',
-                    color: '#aaaaaa',
-                    cursor: 'pointer'
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={newsletter}
-                      onChange={(e) => setNewsletter(e.target.checked)}
-                      style={{ accentColor: '#090476' }}
-                    />
-                    Receber ofertas e novidades por e-mail
-                  </label>
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      fontSize: '12px',
+                      color: '#aaaaaa',
+                      cursor: 'pointer'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={newsletter}
+                        onChange={(e) => setNewsletter(e.target.checked)}
+                        style={{ accentColor: '#090476' }}
+                      />
+                      Receber atualizações de pedido e ofertas exclusivas por WhatsApp/E-mail
+                    </label>
+                  </div>
                 </div>
 
                 {/* ENTREGA (CEP) */}
@@ -754,6 +1198,7 @@ export default function CheckoutPage({
                       placeholder="CEP (ex: 22010-000)"
                       value={cep}
                       onChange={handleCepChange}
+                      onBlur={() => { if (cep.replace(/\D/g, '').length === 8) saveLeadData('etapa_1_contato'); }}
                       maxLength={9}
                       style={{
                         width: '100%',
@@ -782,22 +1227,25 @@ export default function CheckoutPage({
                 {/* CONTINUAR BUTTON */}
                 <button
                   type="submit"
+                  disabled={loadingCep}
+                  onClick={handleContinueStep1}
                   style={{
                     width: '100%',
-                    backgroundColor: '#090476',
+                    backgroundColor: loadingCep ? '#222222' : '#090476',
                     color: '#ffffff',
                     fontWeight: '800',
                     fontSize: '14px',
                     padding: '16px 0',
                     borderRadius: '4px',
                     border: 'none',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.2s'
+                    cursor: loadingCep ? 'wait' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: loadingCep ? 0.7 : 1
                   }}
-                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#0f4592'}
-                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#090476'}
+                  onMouseOver={(e) => { if (!loadingCep) e.currentTarget.style.backgroundColor = '#0f4592'; }}
+                  onMouseOut={(e) => { if (!loadingCep) e.currentTarget.style.backgroundColor = '#090476'; }}
                 >
-                  Continuar
+                  {loadingCep ? 'BUSCANDO ENDEREÇO DO CEP...' : 'Ir para Opções de Entrega & Destinatário'}
                 </button>
               </form>
             )}
@@ -806,11 +1254,11 @@ export default function CheckoutPage({
             {/* STEP 2: SHIPPING OPTION & RECIPIENT                          */}
             {/* ------------------------------------------------------------- */}
             {step === 2 && (
-              <form onSubmit={handleContinueStep2}>
+              <form noValidate onSubmit={handleContinueStep2}>
                 {/* DADOS DE CONTATO SUMMARY */}
                 <div style={{ marginBottom: '24px' }}>
                   <div style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '8px' }}>
-                    DADOS DE CONTATO
+                    DADOS DE CONTATO (CAPTURADOS NA ETAPA 1)
                   </div>
                   <div style={{
                     position: 'relative',
@@ -818,138 +1266,72 @@ export default function CheckoutPage({
                     border: '1px solid #333333',
                     borderRadius: '4px',
                     padding: '14px 16px',
-                    fontSize: '14px',
+                    fontSize: '13px',
                     color: '#ffffff',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between'
                   }}>
-                    <span>{email}</span>
-                    <div style={{
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '50%',
-                      backgroundColor: '#27ae60',
-                      color: '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}>
-                      <Check size={12} />
+                    <div>
+                      <div><strong style={{ color: '#aaaaaa' }}>E-mail:</strong> {email}</div>
+                      <div style={{ marginTop: '4px' }}><strong style={{ color: '#aaaaaa' }}>WhatsApp:</strong> {phone}</div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setStep(1)}
+                      style={{ background: 'none', border: 'none', color: '#3498db', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Alterar
+                    </button>
                   </div>
                 </div>
 
-                {/* ENTREGA - SHIPPING OPTIONS */}
+                {/* ENTREGA */}
                 <div style={{ marginBottom: '28px' }}>
                   <div style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '8px' }}>
                     ENTREGA
                   </div>
 
-                  {/* SEDEX Option */}
-                  <div
-                    onClick={() => setSelectedShipping({
-                      id: 'sedex',
-                      name: 'Correios SEDEX',
-                      price: 24.90,
-                      days: 'Chega entre quinta-feira e sexta-feira'
-                    })}
-                    style={{
-                      backgroundColor: '#0a0a0a',
-                      border: selectedShipping.id === 'sedex' ? '1px solid #ffffff' : '1px solid #222222',
-                      borderRadius: '4px',
-                      padding: '14px 16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      marginBottom: '8px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        width: '16px',
-                        height: '16px',
-                        borderRadius: '50%',
-                        border: selectedShipping.id === 'sedex' ? '5px solid #ffffff' : '2px solid #555',
-                        backgroundColor: '#000'
-                      }} />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>
-                          Correios SEDEX
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#aaaaaa', marginTop: '2px' }}>
-                          Chega rápido no seu endereço
-                        </div>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
-                      R$ 24,90
-                    </span>
-                  </div>
+                  {(shippingOptionsList.length > 0 ? shippingOptionsList : calculateShippingRates(addressData?.uf || 'SP', 300, cartItems).options).map((opt) => {
+                    const isSelected = selectedShipping?.id === opt.id;
 
-                  {/* Collapsible More Options */}
-                  {showMoreShipping && (
-                    <div
-                      onClick={() => setSelectedShipping({
-                        id: 'pac',
-                        name: 'Correios PAC (Econômico)',
-                        price: 14.90,
-                        days: 'Chega em 4 a 6 dias úteis'
-                      })}
-                      style={{
-                        backgroundColor: '#0a0a0a',
-                        border: selectedShipping.id === 'pac' ? '1px solid #ffffff' : '1px solid #222222',
-                        borderRadius: '4px',
-                        padding: '14px 16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        marginBottom: '8px'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{
-                          width: '16px',
-                          height: '16px',
-                          borderRadius: '50%',
-                          border: selectedShipping.id === 'pac' ? '5px solid #ffffff' : '2px solid #555',
-                          backgroundColor: '#000'
-                        }} />
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>
-                            Correios PAC (Econômico)
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#aaaaaa', marginTop: '2px' }}>
-                            Chega em 4 a 6 dias úteis
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={() => setSelectedShipping(opt)}
+                        style={{
+                          backgroundColor: '#0a0a0a',
+                          border: isSelected ? '1px solid #ffffff' : '1px solid #222222',
+                          borderRadius: '4px',
+                          padding: '14px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer',
+                          marginBottom: '8px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{
+                            width: '16px',
+                            height: '16px',
+                            borderRadius: '50%',
+                            border: isSelected ? '5px solid #ffffff' : '2px solid #555',
+                            backgroundColor: '#000',
+                            flexShrink: 0
+                          }} />
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>
+                              {opt.name}
+                            </div>
                           </div>
                         </div>
+                        <span style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
+                          R$ {opt.price.toFixed(2).replace('.', ',')}
+                        </span>
                       </div>
-                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
-                        R$ 14,90
-                      </span>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => setShowMoreShipping(!showMoreShipping)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#ffffff',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      marginTop: '4px'
-                    }}
-                  >
-                    Mais opções {showMoreShipping ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
+                    );
+                  })}
                 </div>
 
                 {/* DADOS PARA ENTREGA */}
@@ -1011,37 +1393,7 @@ export default function CheckoutPage({
                       )}
                     </div>
 
-                    {/* Telefone com DDD */}
-                    <div style={{ position: 'relative' }}>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Telefone celular com DDD (ex: 34 98888-7777)"
-                        value={phone}
-                        onChange={handlePhoneChange}
-                        maxLength={15}
-                        style={{
-                          width: '100%',
-                          backgroundColor: '#000000',
-                          border: step2Errors.phone ? '1px solid #e74c3c' : validatePhone(phone) ? '1px solid #27ae60' : '1px solid #333333',
-                          color: '#ffffff',
-                          padding: '14px 16px',
-                          fontSize: '14px',
-                          borderRadius: '4px',
-                          outline: 'none'
-                        }}
-                      />
-                      {validatePhone(phone) && (
-                        <div style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#27ae60', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Check size={12} />
-                        </div>
-                      )}
-                      {step2Errors.phone && (
-                        <span style={{ fontSize: '11px', color: '#e74c3c', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <AlertCircle size={14} /> {step2Errors.phone}
-                        </span>
-                      )}
-                    </div>
+
 
                     {/* Auto-filled Address Card */}
                     <div style={{
@@ -1169,285 +1521,443 @@ export default function CheckoutPage({
                       </span>
                     )}
                   </div>
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#aaaaaa', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={sameAsDelivery}
-                      onChange={(e) => setSameAsDelivery(e.target.checked)}
-                      style={{ accentColor: '#090476' }}
-                    />
-                    Usar as mesmas informações da entrega
-                  </label>
                 </div>
 
-                {/* CONTINUAR PARA PAGAMENTO BUTTON */}
-                <button
-                  type="submit"
-                  style={{
-                    width: '100%',
-                    backgroundColor: '#090476',
-                    color: '#ffffff',
-                    fontWeight: '800',
-                    fontSize: '14px',
-                    padding: '16px 0',
-                    borderRadius: '4px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.2s'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#0f4592'}
-                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#090476'}
-                >
-                  Continuar para pagamento
-                </button>
-              </form>
-            )}
-
-            {/* ------------------------------------------------------------- */}
-            {/* STEP 3: PAYMENT SELECTION                                     */}
-            {/* ------------------------------------------------------------- */}
-            {step === 3 && (
-              <form onSubmit={handlePlaceOrder}>
-                {/* SUMMARY ROWS FROM PREVIOUS STEPS */}
-                <div style={{ marginBottom: '28px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  
-                  {/* Email summary */}
-                  <div style={{
-                    backgroundColor: '#000000',
-                    borderBottom: '1px solid #1c1c1c',
-                    paddingBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: '13px',
-                    gap: '12px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#dddddd', flex: 1, minWidth: 0, wordBreak: 'break-all' }}>
-                      <span style={{ flexShrink: 0 }}>✉</span> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{email}</span>
-                    </div>
-                  </div>
-
-                  {/* Address summary */}
-                  <div style={{
-                    backgroundColor: '#000000',
-                    borderBottom: '1px solid #1c1c1c',
-                    paddingBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    fontSize: '13px',
-                    gap: '12px'
-                  }}>
-                    <div style={{ display: 'flex', gap: '10px', color: '#dddddd', flex: 1, minWidth: 0 }}>
-                      <MapPin size={16} color="#888888" style={{ marginTop: '2px', flexShrink: 0 }} />
-                      <div style={{ minWidth: 0, wordBreak: 'break-word' }}>
-                        <div style={{ color: '#ffffff', fontWeight: '600' }}>{addressData ? addressData.logradouro : ''} {noNumber ? 'SN' : streetNumber} {complement && `- ${complement}`}</div>
-                        <div style={{ fontSize: '11px', color: '#aaaaaa', marginTop: '2px', wordBreak: 'break-word' }}>
-                          CEP {cep} - {addressData ? `${addressData.bairro}, ${addressData.localidade}/${addressData.uf}` : ''} - {phone}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setStep(2)}
-                      style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '12px', textDecoration: 'underline', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
-                    >
-                      Alterar
-                    </button>
-                  </div>
-
-                  {/* Shipping summary */}
-                  <div style={{
-                    backgroundColor: '#000000',
-                    borderBottom: '1px solid #1c1c1c',
-                    paddingBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: '13px',
-                    gap: '12px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#dddddd', flex: 1, minWidth: 0 }}>
-                      <Truck size={16} color="#888888" style={{ flexShrink: 0 }} />
-                      <div style={{ minWidth: 0, wordBreak: 'break-word' }}>
-                        <strong>{selectedShipping.name}</strong> · R$ {selectedShipping.price.toFixed(2).replace('.', ',')}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setStep(2)}
-                      style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '12px', textDecoration: 'underline', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
-                    >
-                      Alterar
-                    </button>
-                  </div>
-
-                  {/* Additional comments */}
-                  <div style={{
-                    backgroundColor: '#000000',
-                    borderBottom: '1px solid #1c1c1c',
-                    paddingBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: '13px',
-                    gap: '12px'
-                  }}>
-                    <span style={{ color: '#dddddd', flex: 1, minWidth: 0 }}>💬 Comentários adicionais</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowCommentsInput(!showCommentsInput)}
-                      style={{ background: 'none', border: 'none', color: '#ffffff', fontSize: '12px', textDecoration: 'underline', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
-                    >
-                      Adicionar
-                    </button>
-                  </div>
-                  {showCommentsInput && (
-                    <textarea
-                      placeholder="Alguma observação sobre seu pedido? (opcional)"
-                      value={comments}
-                      onChange={(e) => setComments(e.target.value)}
-                      rows={3}
-                      style={{
-                        width: '100%',
-                        backgroundColor: '#0c0c0c',
-                        border: '1px solid #333333',
-                        color: '#ffffff',
-                        padding: '10px',
-                        fontSize: '12px',
-                        borderRadius: '4px',
-                        outline: 'none'
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* FORMA DE PAGAMENTO */}
-                <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '14px' }}>
-                    FORMA DE PAGAMENTO
-                  </h3>
-
-                  {/* Credit Card Button */}
-                  <div
-                    onClick={() => setPaymentMethod('card')}
-                    style={{
-                      backgroundColor: '#0a0a0a',
-                      border: paymentMethod === 'card' ? '1px solid #ffffff' : '1px solid #222222',
-                      borderRadius: '6px',
-                      padding: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer',
-                      marginBottom: '10px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <CreditCard size={20} color="#ffffff" />
-                      <span style={{ fontSize: '14px', fontWeight: '700', color: '#ffffff' }}>
-                        Cartão de crédito
-                      </span>
-                    </div>
-                    <span>›</span>
-                  </div>
-
-                  {/* Card Expanded Input Form */}
-                  {paymentMethod === 'card' && (
-                    <div style={{
-                      backgroundColor: '#080808',
-                      border: '1px solid #222222',
-                      borderRadius: '6px',
-                      padding: '18px',
-                      marginBottom: '14px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '12px',
-                      boxSizing: 'border-box',
-                      width: '100%'
-                    }}>
-                      <input
-                        type="text"
-                        placeholder="Número do Cartão"
-                        value={cardData.number}
-                        onChange={(e) => setCardData({ ...cardData, number: e.target.value })}
-                        style={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff', padding: '12px', borderRadius: '4px', fontSize: '13px', width: '100%', boxSizing: 'border-box', outline: 'none' }}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Nome impresso no Cartão"
-                        value={cardData.name}
-                        onChange={(e) => setCardData({ ...cardData, name: e.target.value })}
-                        style={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff', padding: '12px', borderRadius: '4px', fontSize: '13px', width: '100%', boxSizing: 'border-box', outline: 'none' }}
-                      />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%', boxSizing: 'border-box' }}>
-                        <input
-                          type="text"
-                          placeholder="Validade (MM/AA)"
-                          value={cardData.expiry}
-                          onChange={(e) => setCardData({ ...cardData, expiry: e.target.value })}
-                          style={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff', padding: '12px', borderRadius: '4px', fontSize: '13px', width: '100%', minWidth: 0, boxSizing: 'border-box', outline: 'none' }}
-                        />
-                        <input
-                          type="text"
-                          placeholder="CVV"
-                          value={cardData.cvv}
-                          onChange={(e) => setCardData({ ...cardData, cvv: e.target.value })}
-                          style={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff', padding: '12px', borderRadius: '4px', fontSize: '13px', width: '100%', minWidth: 0, boxSizing: 'border-box', outline: 'none' }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pix Button */}
-                  <div
-                    onClick={() => setPaymentMethod('pix')}
-                    style={{
-                      backgroundColor: '#0a0a0a',
-                      border: paymentMethod === 'pix' ? '1px solid #ffffff' : '1px solid #222222',
-                      borderRadius: '6px',
-                      padding: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <QrCode size={20} color="#ffffff" />
-                      <span style={{ fontSize: '14px', fontWeight: '700', color: '#ffffff' }}>
-                        Pix
-                      </span>
-                    </div>
-                    <span>›</span>
-                  </div>
-
-                </div>
-
-                {/* FAZER PEDIDO BUTTON */}
+                {/* CONCLUIR PEDIDO BUTTON */}
                 <button
                   type="submit"
                   disabled={isSubmitting}
+                  onClick={handleContinueStep2}
                   style={{
                     width: '100%',
-                    backgroundColor: '#090476',
+                    backgroundColor: isSubmitting ? '#222222' : '#090476',
                     color: '#ffffff',
                     fontWeight: '800',
                     fontSize: '14px',
                     padding: '16px 0',
                     borderRadius: '4px',
                     border: 'none',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.2s'
+                    cursor: isSubmitting ? 'wait' : 'pointer',
+                    transition: 'background-color 0.2s',
+                    marginTop: '20px',
+                    opacity: isSubmitting ? 0.7 : 1
                   }}
-                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#0f4592'}
-                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#090476'}
+                  onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.backgroundColor = '#0f4592'; }}
+                  onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.backgroundColor = '#090476'; }}
                 >
-                  {isSubmitting ? 'Processando pedido...' : 'Fazer pedido'}
+                  {isSubmitting ? 'IR PARA PAGAMENTO...' : 'Ir para Pagamento (Etapa 3)'}
                 </button>
               </form>
             )}
+
+            {/* ------------------------------------------------------------- */}
+            {/* STEP 3: PAYMENT METHOD (CARD MODAL & PIX)                    */}
+            {/* ------------------------------------------------------------- */}
+            {step === 3 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* RECAP OF STEP 1 & STEP 2 */}
+                <div style={{
+                  backgroundColor: '#0a0a0c',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  fontSize: '13px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ color: '#888888', fontWeight: '600' }}>Contato: </span>
+                      <span style={{ color: '#ffffff', fontWeight: '700' }}>{email}</span> • <span style={{ color: '#ffffff' }}>{phone}</span>
+                    </div>
+                    <button type="button" onClick={() => setStep(1)} style={{ background: 'none', border: 'none', color: '#3498db', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Alterar
+                    </button>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ color: '#888888', fontWeight: '600' }}>Enviar para: </span>
+                      <span style={{ color: '#ffffff', fontWeight: '700' }}>{firstName} {lastName}</span>, {addressData ? `${addressData.logradouro}, ${streetNumber} - ${addressData.bairro}, ${addressData.localidade}/${addressData.uf}` : `CEP ${cep}`}
+                    </div>
+                    <button type="button" onClick={() => setStep(2)} style={{ background: 'none', border: 'none', color: '#3498db', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Alterar
+                    </button>
+                  </div>
+                </div>
+
+                {/* PAYMENT METHOD SELECTOR TABS */}
+                <div>
+                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '14px' }}>
+                    FORMA DE PAGAMENTO
+                  </h3>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                    {/* Cartão Tab */}
+                    <div
+                      onClick={() => { setPaymentMethod('card'); setPaymentError(''); }}
+                      style={{
+                        backgroundColor: paymentMethod === 'card' ? '#0d0d14' : '#050507',
+                        border: paymentMethod === 'card' ? '2px solid #00d2ff' : '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <CreditCard size={22} color={paymentMethod === 'card' ? '#00d2ff' : '#aaaaaa'} />
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '50%',
+                          border: paymentMethod === 'card' ? '5px solid #00d2ff' : '2px solid #555',
+                          backgroundColor: '#000'
+                        }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff' }}>Cartão de Crédito ou Débito</div>
+                        <div style={{ fontSize: '11px', color: '#888888', marginTop: '2px' }}>Em até 12x no cartão</div>
+                      </div>
+                    </div>
+
+                    {/* PIX Tab */}
+                    <div
+                      onClick={() => { setPaymentMethod('pix'); setPaymentError(''); }}
+                      style={{
+                        backgroundColor: paymentMethod === 'pix' ? '#0d0d14' : '#050507',
+                        border: paymentMethod === 'pix' ? '2px solid #27ae60' : '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <QrCode size={22} color={paymentMethod === 'pix' ? '#27ae60' : '#aaaaaa'} />
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '50%',
+                          border: paymentMethod === 'pix' ? '5px solid #27ae60' : '2px solid #555',
+                          backgroundColor: '#000'
+                        }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff' }}>PIX Instantâneo</div>
+                        <div style={{ fontSize: '11px', color: '#27ae60', fontWeight: '700', marginTop: '2px' }}>Aprovação Imediata • QR Code</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {paymentError && (
+                  <div style={{
+                    backgroundColor: 'rgba(231, 76, 60, 0.12)',
+                    border: '1px solid #e74c3c',
+                    color: '#e74c3c',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <AlertCircle size={18} /> {paymentError}
+                  </div>
+                )}
+
+                {/* CARD FORM (Matches Reference Screenshot Style) */}
+                {paymentMethod === 'card' && (
+                  <form noValidate onSubmit={handlePlaceOrder}>
+                    <div style={{
+                      backgroundColor: '#09090d',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '16px',
+                      padding: '24px',
+                      boxShadow: '0 12px 32px rgba(0, 0, 0, 0.6)'
+                    }}>
+                      {/* Header inside Box */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+                        <div>
+                          <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.3px', marginBottom: '4px' }}>
+                            Cartão de Crédito ou Débito
+                          </h2>
+                          <p style={{ fontSize: '13px', color: '#999999', margin: 0 }}>
+                            Digite os dados do seu cartão abaixo.
+                          </p>
+                        </div>
+
+                        <div style={{
+                          padding: '8px 12px',
+                          backgroundColor: '#14141c',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          {cardBrand ? (
+                            <span style={{ fontSize: '12px', fontWeight: '900', color: '#00d2ff', letterSpacing: '1px' }}>
+                              {cardBrand}
+                            </span>
+                          ) : (
+                            <CreditCard size={22} color="#ffffff" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Name on Card Input */}
+                      <div style={{ marginBottom: '18px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
+                          Nome no cartão
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Lucy Phillipe"
+                          value={cardData.name}
+                          onChange={(e) => setCardData({ ...cardData, name: e.target.value })}
+                          style={{
+                            width: '100%',
+                            backgroundColor: '#000000',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: '#ffffff',
+                            padding: '14px 16px',
+                            fontSize: '14px',
+                            borderRadius: '10px',
+                            outline: 'none'
+                          }}
+                          onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
+                          onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+                        />
+                      </div>
+
+                      {/* Card Number Input */}
+                      <div style={{ marginBottom: '18px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
+                          Número do cartão
+                        </label>
+                        <div style={{ position: 'relative' }}>
+                          <input
+                            type="text"
+                            required
+                            placeholder="4439 5678 9876 5432"
+                            value={cardData.number}
+                            onChange={handleCardNumberChange}
+                            maxLength={19}
+                            style={{
+                              width: '100%',
+                              backgroundColor: '#000000',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              color: '#ffffff',
+                              padding: '14px 48px 14px 16px',
+                              fontSize: '15px',
+                              fontFamily: 'monospace',
+                              letterSpacing: '1px',
+                              borderRadius: '10px',
+                              outline: 'none'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
+                            onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+                          />
+                          <div style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)' }}>
+                            {cardBrand ? (
+                              <span style={{ fontSize: '11px', fontWeight: '900', color: '#00d2ff' }}>{cardBrand}</span>
+                            ) : (
+                              <CreditCard size={20} color="#777777" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Expiry & CVV Row */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '18px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
+                            Data de Validade
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="07 / 25"
+                            value={cardData.expiry}
+                            onChange={handleCardExpiryChange}
+                            maxLength={7}
+                            style={{
+                              width: '100%',
+                              backgroundColor: '#000000',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              color: '#ffffff',
+                              padding: '14px 16px',
+                              fontSize: '14px',
+                              borderRadius: '10px',
+                              outline: 'none',
+                              textAlign: 'center'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
+                            onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
+                            CVV
+                          </label>
+                          <input
+                            type="password"
+                            required
+                            placeholder="***"
+                            value={cardData.cvv}
+                            onChange={(e) => setCardData({ ...cardData, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                            maxLength={4}
+                            style={{
+                              width: '100%',
+                              backgroundColor: '#000000',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              color: '#ffffff',
+                              padding: '14px 16px',
+                              fontSize: '14px',
+                              borderRadius: '10px',
+                              outline: 'none',
+                              textAlign: 'center'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
+                            onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Option for Installments */}
+                      <div style={{ marginBottom: '24px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
+                          Opções de Parcelamento
+                        </label>
+                        <select
+                          value={cardData.installments}
+                          onChange={(e) => setCardData({ ...cardData, installments: e.target.value })}
+                          style={{
+                            width: '100%',
+                            backgroundColor: '#000000',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            color: '#ffffff',
+                            padding: '14px 16px',
+                            fontSize: '14px',
+                            borderRadius: '10px',
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
+                            <option key={num} value={num} style={{ backgroundColor: '#111111', color: '#ffffff' }}>
+                              {num}x de R$ {(grandTotal / num).toFixed(2).replace('.', ',')} {num === 1 ? '(À vista sem juros)' : 'sem juros'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Complete Payment Button */}
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        style={{
+                          width: '100%',
+                          backgroundColor: '#090476',
+                          backgroundImage: 'linear-gradient(135deg, #090476 0%, #1d07d8 100%)',
+                          color: '#ffffff',
+                          fontWeight: '800',
+                          fontSize: '15px',
+                          letterSpacing: '0.3px',
+                          padding: '16px 0',
+                          borderRadius: '12px',
+                          border: 'none',
+                          cursor: isSubmitting ? 'wait' : 'pointer',
+                          boxShadow: '0 8px 24px rgba(9, 4, 118, 0.5)',
+                          transition: 'all 0.2s ease',
+                          opacity: isSubmitting ? 0.7 : 1
+                        }}
+                        onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1.15)'; }}
+                        onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1)'; }}
+                      >
+                        {isSubmitting ? 'PROCESSANDO PAGAMENTO...' : 'Completar Pagamento'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* PIX FORM */}
+                {paymentMethod === 'pix' && (
+                  <form noValidate onSubmit={handlePlaceOrder}>
+                    <div style={{
+                      backgroundColor: '#09090d',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: '16px',
+                      padding: '24px',
+                      boxShadow: '0 12px 32px rgba(0, 0, 0, 0.6)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                        <div style={{
+                          padding: '10px',
+                          backgroundColor: 'rgba(39, 174, 96, 0.15)',
+                          border: '1px solid #27ae60',
+                          borderRadius: '10px',
+                          color: '#27ae60'
+                        }}>
+                          <QrCode size={28} />
+                        </div>
+                        <div>
+                          <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff', margin: 0 }}>
+                            Pagamento com PIX
+                          </h2>
+                          <p style={{ fontSize: '12px', color: '#27ae60', fontWeight: '700', margin: 0 }}>
+                            Aprovação Instantânea via Mercado Pago
+                          </p>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '13px', color: '#aaaaaa', lineHeight: 1.5, marginBottom: '20px' }}>
+                        Ao clicar em <strong>Completar Pagamento</strong>, o código PIX Copia e Cola e o QR Code serão gerados em tempo real via Mercado Pago para você pagar no aplicativo do seu banco.
+                      </p>
+
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        style={{
+                          width: '100%',
+                          backgroundColor: '#27ae60',
+                          backgroundImage: 'linear-gradient(135deg, #27ae60 0%, #2ecc71 100%)',
+                          color: '#ffffff',
+                          fontWeight: '800',
+                          fontSize: '15px',
+                          letterSpacing: '0.3px',
+                          padding: '16px 0',
+                          borderRadius: '12px',
+                          border: 'none',
+                          cursor: isSubmitting ? 'wait' : 'pointer',
+                          boxShadow: '0 8px 24px rgba(39, 174, 96, 0.4)',
+                          transition: 'all 0.2s ease',
+                          opacity: isSubmitting ? 0.7 : 1
+                        }}
+                        onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1.15)'; }}
+                        onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1)'; }}
+                      >
+                        {isSubmitting ? 'GERANDO CÓDIGO PIX...' : 'Completar Pagamento com PIX'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+              </div>
+            )}
+
 
           </div>
 
