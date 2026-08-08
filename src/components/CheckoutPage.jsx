@@ -652,7 +652,7 @@ export default function CheckoutPage({
     }
   };
 
-  // Step 3 Submit Order Placement (InfinitePay Integration)
+  // Step 3 Submit Order Placement (InfinitePay Integration com Preço 100% Travado e Bloqueado)
   const handlePlaceOrder = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     setPaymentError('');
@@ -661,106 +661,73 @@ export default function CheckoutPage({
     try {
       saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
 
-      const itemsPayload = cartItems.map(i => ({
-        name: i.title || i.name,
-        price: i.price,
-        quantity: i.quantity,
-        size: i.selectedSize || 'Único'
+      const apiItems = cartItems.map(i => ({
+        quantity: Number(i.quantity) || 1,
+        price: Math.round(Number(i.price) * 100),
+        description: String(i.title || i.name || 'Produto Impressão 3D').substring(0, 60)
       }));
 
       if (shippingCost > 0) {
-        itemsPayload.push({
-          name: `Frete (${selectedShipping ? selectedShipping.name : 'Correios / Envio'})`,
-          price: shippingCost,
+        apiItems.push({
           quantity: 1,
-          size: 'Envio'
+          price: Math.round(Number(shippingCost) * 100),
+          description: `Frete (${selectedShipping ? selectedShipping.name : 'Envio'})`
         });
       }
 
+      // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO, TRAVADO e BLOQUEADO ao cliente
+      const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handle: 'lays-moreira-rodrigues',
+          redirect_url: `${window.location.origin}/#/sucesso`,
+          order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+          items: apiItems
+        })
+      });
+
+      if (apiRes.ok) {
+        const apiData = await apiRes.json();
+        const checkoutUrl = apiData.url || apiData.checkout_url;
+        if (checkoutUrl) {
+          window.location.href = checkoutUrl;
+          return;
+        }
+      }
+
+      // 2. Se a API retornar erro de validação, tenta via Edge Function do Supabase
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-      
-      let checkoutUrl = null;
+      const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': anonKey,
+          'Authorization': `Bearer ${anonKey}`
+        },
+        body: JSON.stringify({
+          items: apiItems,
+          totalAmount: grandTotal,
+          orderId: activeOrderIdRef.current,
+          redirectUrl: `${window.location.origin}/#/sucesso`
+        })
+      });
 
-      // 1. Tenta gerar via Edge Function do Supabase (se disponível)
-      try {
-        const res = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': anonKey,
-            'Authorization': `Bearer ${anonKey}`
-          },
-          body: JSON.stringify({
-            items: itemsPayload,
-            totalAmount: grandTotal,
-            orderId: activeOrderIdRef.current,
-            redirectUrl: `${window.location.origin}/#/sucesso`
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.checkoutUrl) {
-            checkoutUrl = data.checkoutUrl;
-          }
-        }
-      } catch (e) {
-        console.warn('Edge Function indisponível, gerando link com preço bloqueado via API oficial:', e);
-      }
-
-      // 2. Se a Edge Function não retornou link com token travado, gera DIRETO via API oficial da InfinitePay (Garante Valor FIXO e BLOQUEADO ao cliente)
-      if (!checkoutUrl || !checkoutUrl.includes('lenc=')) {
-        try {
-          const apiItems = cartItems.map(i => ({
-            quantity: Number(i.quantity) || 1,
-            price: Math.round(Number(i.price) * 100),
-            description: String(i.title || i.name || 'Produto Impressão 3D').substring(0, 60)
-          }));
-
-          if (shippingCost > 0) {
-            apiItems.push({
-              quantity: 1,
-              price: Math.round(Number(shippingCost) * 100),
-              description: 'Frete de Entrega'
-            });
-          }
-
-          const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              handle: 'lays-moreira-rodrigues',
-              redirect_url: `${window.location.origin}/#/sucesso`,
-              order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
-              items: apiItems
-            })
-          });
-
-          if (apiRes.ok) {
-            const apiData = await apiRes.json();
-            if (apiData.url || apiData.checkout_url) {
-              checkoutUrl = apiData.url || apiData.checkout_url;
-            }
-          }
-        } catch (apiErr) {
-          console.error('Erro ao chamar API oficial da InfinitePay:', apiErr);
+      if (fallbackRes.ok) {
+        const fallbackData = await fallbackRes.json();
+        if (fallbackData.checkoutUrl) {
+          window.location.href = fallbackData.checkoutUrl;
+          return;
         }
       }
 
-      // Fallback de segurança se nenhuma API respondeu
-      if (!checkoutUrl) {
-        const totalAmountInCents = Math.round(grandTotal * 100);
-        checkoutUrl = `https://pay.infinitepay.io/lays-moreira-rodrigues?amount=${totalAmountInCents}`;
-      }
-
-      window.location.href = checkoutUrl;
-      return;
+      setPaymentError('Não foi possível gerar a cobrança travada da InfinitePay. Verifique sua conexão e tente novamente.');
+      setIsSubmitting(false);
     } catch (err) {
-      console.error('Erro ao gerar pagamento da InfinitePay:', err);
-      const totalInCents = Math.round(grandTotal * 100);
-      window.location.href = `https://pay.infinitepay.io/lays-moreira-rodrigues?amount=${totalInCents}`;
-      return;
+      console.error('Erro ao gerar pagamento travado da InfinitePay:', err);
+      setPaymentError('Erro de comunicação com a InfinitePay. Por favor, tente novamente.');
+      setIsSubmitting(false);
     }
   };
 
