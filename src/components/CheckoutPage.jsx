@@ -192,9 +192,10 @@ export default function CheckoutPage({
   });
   const [paymentError, setPaymentError] = useState('');
 
-  // Mercado Pago Credentials loaded from Supabase store_settings
+  // Mercado Pago & InfinitePay Credentials loaded from Supabase store_settings
   const [mercadoPagoPublicKey, setMercadoPagoPublicKey] = useState('');
   const [mercadoPagoAccessToken, setMercadoPagoAccessToken] = useState('');
+  const [infinitePayHandle, setInfinitePayHandle] = useState('lays-moreira-rodrigues');
 
   useEffect(() => {
     async function loadPaymentSettings() {
@@ -204,11 +205,12 @@ export default function CheckoutPage({
 
         const { data } = await supabase
           .from('store_settings')
-          .select('mercadopago_public_key, mercadopago_access_token, mercadopago_access_token_encrypted')
+          .select('mercadopago_public_key, mercadopago_access_token, mercadopago_access_token_encrypted, infinitepay_handle')
           .single();
         if (data) {
           if (data.mercadopago_public_key) pubKey = data.mercadopago_public_key;
           token = data.mercadopago_access_token || data.mercadopago_access_token_encrypted || '';
+          if (data.infinitepay_handle) setInfinitePayHandle(data.infinitepay_handle);
         }
 
         if (!pubKey) {
@@ -226,7 +228,7 @@ export default function CheckoutPage({
         if (pubKey) setMercadoPagoPublicKey(pubKey);
         if (token) setMercadoPagoAccessToken(token);
       } catch (e) {
-        console.log('Busca de credenciais do Mercado Pago concluída.');
+        console.log('Busca de credenciais concluída.');
       }
     }
     loadPaymentSettings();
@@ -271,6 +273,7 @@ export default function CheckoutPage({
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponError, setCouponError] = useState('');
+  const [loadingCoupon, setLoadingCoupon] = useState(false);
 
   // Order Placement & Completion State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -312,13 +315,25 @@ export default function CheckoutPage({
   };
 
   // Subtotal Calculation
-  const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = cartItems.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
 
-  // Coupon Discount
-  const couponDiscount = appliedCoupon ? subtotal * (appliedCoupon.discountPercent / 100) : 0;
+  // Coupon Discount & Effective Shipping Calculation
+  let couponDiscount = 0;
+  const baseShippingCost = selectedShipping ? Number(selectedShipping.price) || 0 : 0;
+  let effectiveShippingCost = baseShippingCost;
 
-  // Shipping Cost
-  const shippingCost = selectedShipping ? selectedShipping.price : 0;
+  if (appliedCoupon) {
+    if (appliedCoupon.type === 'percentage') {
+      couponDiscount = subtotal * ((Number(appliedCoupon.value) || 0) / 100);
+    } else if (appliedCoupon.type === 'fixed') {
+      couponDiscount = Math.min(subtotal, Number(appliedCoupon.value) || 0);
+    } else if (appliedCoupon.type === 'free_shipping') {
+      effectiveShippingCost = 0;
+    }
+  }
+
+  // Shipping Cost used in summary and payloads
+  const shippingCost = effectiveShippingCost;
 
   // Grand Total
   const grandTotal = Math.max(0, subtotal - couponDiscount + shippingCost);
@@ -617,8 +632,8 @@ export default function CheckoutPage({
     setStep(2);
   };
 
-  // Step 2 Validation & Direct Order Placement (No separate payment step)
-  const handleContinueStep2 = (e) => {
+  // Step 2 Validation & Direct Order Placement (Redirects directly to InfinitePay)
+  const handleContinueStep2 = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const errors = {};
 
@@ -647,14 +662,15 @@ export default function CheckoutPage({
       } catch (err) {
         console.error('Erro ao salvar lead:', err);
       }
-      setStep(3);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      
+      // Prossegue diretamente para o checkout seguro da InfinitePay sem tela intermediária
+      await handlePlaceOrder();
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
-  // Step 3 Submit Order Placement (InfinitePay Integration com Preço 100% Travado e Bloqueado)
+  // Submit Order Placement (InfinitePay Integration com Preço 100% Travado e Bloqueado)
   const handlePlaceOrder = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     setPaymentError('');
@@ -663,16 +679,51 @@ export default function CheckoutPage({
     try {
       saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
 
-      let apiItems = cartItems.map(i => ({
-        quantity: Number(i.quantity) || 1,
-        price: Math.max(100, Math.round(Number(i.price || 0) * 100)),
-        description: String(i.title || i.name || 'Produto Impressão 3D').substring(0, 60)
-      }));
+      // Se houver cupom com contador de usos, incrementa no Supabase
+      if (appliedCoupon && appliedCoupon.id) {
+        try {
+          await supabase
+            .from('coupons')
+            .update({ 
+              used_count: (appliedCoupon.used_count || 0) + 1,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', appliedCoupon.id);
+        } catch (couponErr) {
+          console.warn('Erro ao atualizar contador do cupom:', couponErr);
+        }
+      }
 
-      if (shippingCost > 0) {
+      // Calcular itens para a InfinitePay com o valor total travado
+      let apiItems = [];
+      const productsTargetCents = Math.round(Math.max(0, subtotal - couponDiscount) * 100);
+
+      if (cartItems.length > 0 && subtotal > 0) {
+        let allocatedCents = 0;
+        apiItems = cartItems.map((item, idx) => {
+          const itemSubtotal = (Number(item.price) || 0) * (Number(item.quantity) || 1);
+          let itemTotalCents;
+          if (idx === cartItems.length - 1) {
+            itemTotalCents = productsTargetCents - allocatedCents;
+          } else {
+            itemTotalCents = Math.round((itemSubtotal / subtotal) * productsTargetCents);
+            allocatedCents += itemTotalCents;
+          }
+
+          const qty = Number(item.quantity) || 1;
+          const unitPriceCents = Math.max(100, Math.round(itemTotalCents / qty));
+          return {
+            quantity: qty,
+            price: unitPriceCents,
+            description: String(item.title || item.name || 'Produto Impressão 3D').substring(0, 60)
+          };
+        });
+      }
+
+      if (effectiveShippingCost > 0) {
         apiItems.push({
           quantity: 1,
-          price: Math.round(Number(shippingCost) * 100),
+          price: Math.round(Number(effectiveShippingCost) * 100),
           description: `Frete (${selectedShipping ? selectedShipping.name : 'Envio'})`
         });
       }
@@ -704,8 +755,10 @@ export default function CheckoutPage({
         complement: complementAddress
       };
 
+      const targetHandle = infinitePayHandle || 'lays-moreira-rodrigues';
+
       const payload = {
-        handle: 'lays-moreira-rodrigues',
+        handle: targetHandle,
         redirect_url: `${window.location.origin}/#/sucesso`,
         webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
         order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
@@ -740,7 +793,7 @@ export default function CheckoutPage({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              handle: 'lays-moreira-rodrigues',
+              handle: targetHandle,
               redirect_url: `${window.location.origin}/#/sucesso`,
               webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
               order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
@@ -796,21 +849,62 @@ export default function CheckoutPage({
     }
   };
 
-
-  // Apply Coupon
-  const handleApplyCoupon = (e) => {
-    e.preventDefault();
+  // Apply Coupon from Supabase Database
+  const handleApplyCoupon = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     setCouponError('');
     const code = couponCode.trim().toUpperCase();
-    if (code === 'INFINITY10') {
-      setAppliedCoupon({ code: 'INFINITY10', discountPercent: 10 });
-      setCouponCode('');
-    } else if (code === 'PROMO15') {
-      setAppliedCoupon({ code: 'PROMO15', discountPercent: 15 });
-      setCouponCode('');
-    } else {
-      setCouponError('Cupom inválido ou expirado.');
+    if (!code) {
+      setCouponError('Digite o código do cupom.');
+      return;
     }
+
+    setLoadingCoupon(true);
+    try {
+      const { data, error } = await supabase
+        .from('coupons')
+        .select('*')
+        .ilike('code', code)
+        .maybeSingle();
+
+      if (error || !data) {
+        setCouponError('Cupom inválido ou não encontrado.');
+        return;
+      }
+
+      if (!data.active) {
+        setCouponError('Este cupom está inativo no momento.');
+        return;
+      }
+
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        setCouponError('Este cupom expirou.');
+        return;
+      }
+
+      if (data.max_uses !== null && data.used_count >= data.max_uses) {
+        setCouponError('Este cupom atingiu o limite de utilizações.');
+        return;
+      }
+
+      if (data.min_order_value > 0 && subtotal < Number(data.min_order_value)) {
+        setCouponError(`Este cupom exige um pedido mínimo de R$ ${Number(data.min_order_value).toFixed(2).replace('.', ',')}.`);
+        return;
+      }
+
+      setAppliedCoupon(data);
+      setCouponCode('');
+    } catch (err) {
+      console.error('Erro ao validar cupom:', err);
+      setCouponError('Erro ao consultar cupom. Tente novamente.');
+    } finally {
+      setLoadingCoupon(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError('');
   };
 
   // Format CPF mask
@@ -986,7 +1080,7 @@ export default function CheckoutPage({
     <div style={{ backgroundColor: '#000000', color: '#ffffff', minHeight: '100vh', padding: '32px 0 80px 0' }}>
       <div className="container checkout-container-wrapper" style={{ maxWidth: '1100px', padding: '0 16px' }}>
         
-        {/* TOP STEPPER HEADER (Matching Screenshots 1-4) */}
+        {/* TOP STEPPER HEADER */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -994,7 +1088,7 @@ export default function CheckoutPage({
           marginBottom: '36px',
           position: 'relative',
           width: '100%',
-          maxWidth: '480px',
+          maxWidth: '440px',
           margin: '0 auto 36px auto',
           padding: '0 8px',
           boxSizing: 'border-box'
@@ -1003,28 +1097,28 @@ export default function CheckoutPage({
           <div style={{
             position: 'absolute',
             top: '16px',
-            left: '32px',
-            right: '32px',
+            left: '40px',
+            right: '40px',
             height: '2px',
             backgroundColor: '#222222',
             zIndex: 1
           }}>
             <div style={{
-              width: step === 1 ? '0%' : step === 2 ? '50%' : '100%',
+              width: step === 1 ? '0%' : '100%',
               height: '100%',
-              backgroundColor: '#ffffff',
+              backgroundColor: '#27ae60',
               transition: 'width 0.3s ease'
             }} />
           </div>
 
-          {/* Step 1: Carrinho */}
+          {/* Step 1: Contato & CEP */}
           <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', flex: 1 }}>
             <div style={{
               width: '32px',
               height: '32px',
               borderRadius: '50%',
               backgroundColor: step >= 1 ? '#000000' : '#111111',
-              border: step >= 1 ? '2px solid #ffffff' : '2px solid #333333',
+              border: step >= 1 ? '2px solid #27ae60' : '2px solid #333333',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
@@ -1033,21 +1127,21 @@ export default function CheckoutPage({
               fontSize: '12px',
               fontWeight: '800'
             }}>
-              <Check size={16} />
+              {step > 1 ? <Check size={16} color="#27ae60" /> : '1'}
             </div>
             <span style={{ fontSize: '12px', color: step >= 1 ? '#ffffff' : '#666666', fontWeight: step >= 1 ? '700' : '400' }}>
-              Carrinho
+              Contato & CEP
             </span>
           </div>
 
-          {/* Step 2: Entrega */}
+          {/* Step 2: Entrega & Pagamento */}
           <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', flex: 1 }}>
             <div style={{
               width: '32px',
               height: '32px',
               borderRadius: '50%',
               backgroundColor: step >= 2 ? '#000000' : '#111111',
-              border: step >= 2 ? '2px solid #ffffff' : '2px solid #333333',
+              border: step >= 2 ? '2px solid #27ae60' : '2px solid #333333',
               color: '#ffffff',
               display: 'flex',
               alignItems: 'center',
@@ -1056,33 +1150,10 @@ export default function CheckoutPage({
               fontSize: '12px',
               fontWeight: '800'
             }}>
-              {step > 2 ? <Check size={16} /> : <Truck size={16} />}
+              <ShieldCheck size={16} color={step >= 2 ? '#27ae60' : '#888888'} />
             </div>
             <span style={{ fontSize: '12px', color: step >= 2 ? '#ffffff' : '#666666', fontWeight: step >= 2 ? '700' : '400' }}>
-              Entrega
-            </span>
-          </div>
-
-          {/* Step 3: Pagamento */}
-          <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', flex: 1 }}>
-            <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '50%',
-              backgroundColor: step === 3 ? '#000000' : '#111111',
-              border: step === 3 ? '2px solid #ffffff' : '2px solid #333333',
-              color: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 8px auto',
-              fontSize: '12px',
-              fontWeight: '800'
-            }}>
-              <CreditCard size={16} />
-            </div>
-            <span style={{ fontSize: '12px', color: step === 3 ? '#ffffff' : '#666666', fontWeight: step === 3 ? '700' : '400' }}>
-              Pagamento
+              Entrega & Pagamento
             </span>
           </div>
         </div>
@@ -1579,161 +1650,74 @@ export default function CheckoutPage({
                   </div>
                 </div>
 
-                {/* CONCLUIR PEDIDO BUTTON */}
+                {/* PAYMENT ERROR ALERT */}
+                {paymentError && (
+                  <div style={{
+                    backgroundColor: 'rgba(231, 76, 60, 0.12)',
+                    border: '1px solid #e74c3c',
+                    color: '#e74c3c',
+                    padding: '14px 16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    marginTop: '16px'
+                  }}>
+                    <AlertCircle size={18} /> {paymentError}
+                  </div>
+                )}
+
+                {/* PROSSEGUIR DIRETAMENTE PARA PAGAMENTO SEGURO INFINITEPAY */}
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   onClick={handleContinueStep2}
                   style={{
                     width: '100%',
-                    backgroundColor: isSubmitting ? '#222222' : '#090476',
+                    backgroundColor: isSubmitting ? '#14532d' : '#27ae60',
+                    backgroundImage: isSubmitting ? 'none' : 'linear-gradient(135deg, #27ae60 0%, #1e8449 100%)',
                     color: '#ffffff',
                     fontWeight: '800',
                     fontSize: '14px',
+                    letterSpacing: '0.3px',
                     padding: '16px 0',
-                    borderRadius: '4px',
+                    borderRadius: '6px',
                     border: 'none',
                     cursor: isSubmitting ? 'wait' : 'pointer',
-                    transition: 'background-color 0.2s',
+                    boxShadow: isSubmitting ? 'none' : '0 8px 24px rgba(39, 174, 96, 0.35)',
+                    transition: 'all 0.2s ease',
                     marginTop: '20px',
-                    opacity: isSubmitting ? 0.7 : 1
+                    opacity: isSubmitting ? 0.8 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
                   }}
-                  onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.backgroundColor = '#0f4592'; }}
-                  onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.backgroundColor = '#090476'; }}
+                  onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1.1)'; }}
+                  onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1)'; }}
                 >
-                  {isSubmitting ? 'IR PARA PAGAMENTO...' : 'Ir para Pagamento (Etapa 3)'}
+                  {isSubmitting ? (
+                    <>
+                      <span style={{
+                        display: 'inline-block',
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid rgba(255, 255, 255, 0.3)',
+                        borderTopColor: '#ffffff',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }} />
+                      REDIRECIONANDO PARA INFINITEPAY...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={18} /> PROSSEGUIR PARA PAGAMENTO SEGURO
+                    </>
+                  )}
                 </button>
               </form>
             )}
-
-            {/* ------------------------------------------------------------- */}
-            {/* STEP 3: PAYMENT METHOD (CARD MODAL & PIX)                    */}
-            {/* ------------------------------------------------------------- */}
-            {step === 3 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                
-                {/* RECAP OF STEP 1 & STEP 2 */}
-                <div style={{
-                  backgroundColor: '#0a0a0c',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: '12px',
-                  padding: '16px 20px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                  fontSize: '13px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ color: '#888888', fontWeight: '600' }}>Contato: </span>
-                      <span style={{ color: '#ffffff', fontWeight: '700' }}>{email}</span> • <span style={{ color: '#ffffff' }}>{phone}</span>
-                    </div>
-                    <button type="button" onClick={() => setStep(1)} style={{ background: 'none', border: 'none', color: '#3498db', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
-                      Alterar
-                    </button>
-                  </div>
-
-                  <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ color: '#888888', fontWeight: '600' }}>Enviar para: </span>
-                      <span style={{ color: '#ffffff', fontWeight: '700' }}>{firstName} {lastName}</span>, {addressData ? `${addressData.logradouro}, ${streetNumber} - ${addressData.bairro}, ${addressData.localidade}/${addressData.uf}` : `CEP ${cep}`}
-                    </div>
-                    <button type="button" onClick={() => setStep(2)} style={{ background: 'none', border: 'none', color: '#3498db', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
-                      Alterar
-                    </button>
-                  </div>
-                </div>
-
-                {/* INFINITE PAY CHECKOUT BLOCK */}
-                <div>
-                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '14px' }}>
-                    PAGAMENTO SEGURO
-                  </h3>
-
-                  {paymentError && (
-                    <div style={{
-                      backgroundColor: 'rgba(231, 76, 60, 0.12)',
-                      border: '1px solid #e74c3c',
-                      color: '#e74c3c',
-                      padding: '14px 16px',
-                      borderRadius: '10px',
-                      fontSize: '13px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      marginBottom: '18px'
-                    }}>
-                      <AlertCircle size={18} /> {paymentError}
-                    </div>
-                  )}
-
-                  <form noValidate onSubmit={handlePlaceOrder}>
-                    <div style={{
-                      backgroundColor: '#09090d',
-                      border: '1px solid rgba(39, 174, 96, 0.3)',
-                      borderRadius: '16px',
-                      padding: '24px',
-                      boxShadow: '0 12px 32px rgba(0, 0, 0, 0.6)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
-                        <div style={{
-                          padding: '12px',
-                          backgroundColor: 'rgba(39, 174, 96, 0.15)',
-                          border: '1px solid #27ae60',
-                          borderRadius: '12px',
-                          color: '#27ae60'
-                        }}>
-                          <ShieldCheck size={28} />
-                        </div>
-                        <div>
-                          <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff', margin: 0 }}>
-                            Checkout Seguro InfinitePay
-                          </h2>
-                          <p style={{ fontSize: '12px', color: '#27ae60', fontWeight: '700', margin: '2px 0 0 0' }}>
-                            PIX Instantâneo ou Cartão em até 12x
-                          </p>
-                        </div>
-                      </div>
-
-                      <p style={{ fontSize: '13px', color: '#aaaaaa', lineHeight: 1.5, marginBottom: '24px' }}>
-                        Ao clicar no botão abaixo, você será redirecionado para a tela oficial e criptografada da <strong>InfinitePay</strong> para concluir seu pagamento com total segurança por <strong>PIX</strong> ou <strong>Cartão de Crédito</strong>.
-                      </p>
-
-                      <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          backgroundColor: '#27ae60',
-                          backgroundImage: 'linear-gradient(135deg, #27ae60 0%, #1e8449 100%)',
-                          color: '#ffffff',
-                          fontWeight: '800',
-                          fontSize: '15px',
-                          letterSpacing: '0.3px',
-                          padding: '16px 0',
-                          borderRadius: '12px',
-                          border: 'none',
-                          cursor: isSubmitting ? 'wait' : 'pointer',
-                          boxShadow: '0 8px 24px rgba(39, 174, 96, 0.4)',
-                          transition: 'all 0.2s ease',
-                          opacity: isSubmitting ? 0.7 : 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '8px'
-                        }}
-                        onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1.15)'; }}
-                        onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1)'; }}
-                      >
-                        {isSubmitting ? 'REDIRECIONANDO PARA INFINITEPAY...' : 'Ir para Pagamento Seguro (InfinitePay)'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-
-              </div>
-            )}
-
 
           </div>
 
@@ -1803,16 +1787,60 @@ export default function CheckoutPage({
                 </div>
 
                 {appliedCoupon && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#3498db', fontWeight: '700' }}>
-                    <span>Desconto Cupom ({appliedCoupon.discountPercent}%):</span>
-                    <span>- R$ {couponDiscount.toFixed(2).replace('.', ',')}</span>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                    border: '1px solid rgba(39, 174, 96, 0.3)',
+                    borderRadius: '6px',
+                    padding: '8px 12px',
+                    fontSize: '12px'
+                  }}>
+                    <div>
+                      <div style={{ color: '#27ae60', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Tag size={13} /> {appliedCoupon.code}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#aaaaaa' }}>
+                        {appliedCoupon.type === 'percentage' && `${appliedCoupon.value}% de desconto`}
+                        {appliedCoupon.type === 'fixed' && `R$ ${Number(appliedCoupon.value).toFixed(2).replace('.', ',')} de desconto`}
+                        {appliedCoupon.type === 'free_shipping' && 'Frete Grátis'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: '#27ae60', fontWeight: '800' }}>
+                        {appliedCoupon.type === 'free_shipping' ? 'GRÁTIS' : `- R$ ${couponDiscount.toFixed(2).replace('.', ',')}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#e74c3c',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                        title="Remover cupom"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cccccc' }}>
                   <span>Custo de frete</span>
                   <span>
-                    {shippingCost > 0 ? `R$ ${shippingCost.toFixed(2).replace('.', ',')}` : '--'}
+                    {appliedCoupon?.type === 'free_shipping' ? (
+                      <span style={{ color: '#27ae60', fontWeight: '700' }}>Grátis (Cupom)</span>
+                    ) : shippingCost > 0 ? (
+                      `R$ ${shippingCost.toFixed(2).replace('.', ',')}`
+                    ) : (
+                      '--'
+                    )}
                   </span>
                 </div>
 
@@ -1835,7 +1863,7 @@ export default function CheckoutPage({
 
               {/* Coupon link/form toggle */}
               <div>
-                {!showCouponInput ? (
+                {!showCouponInput && !appliedCoupon ? (
                   <button
                     type="button"
                     onClick={() => setShowCouponInput(true)}
@@ -1854,14 +1882,14 @@ export default function CheckoutPage({
                   >
                     Adicionar cupom de desconto
                   </button>
-                ) : (
+                ) : !appliedCoupon ? (
                   <form onSubmit={handleApplyCoupon} style={{ marginTop: '12px' }}>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <input
                         type="text"
-                        placeholder="Cupom (ex: INFINITY10)"
+                        placeholder="Código do cupom"
                         value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value)}
+                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                         style={{
                           flex: 1,
                           backgroundColor: '#0a0a0a',
@@ -1870,11 +1898,14 @@ export default function CheckoutPage({
                           padding: '10px',
                           borderRadius: '4px',
                           fontSize: '12px',
-                          outline: 'none'
+                          outline: 'none',
+                          textTransform: 'uppercase',
+                          fontWeight: '700'
                         }}
                       />
                       <button
                         type="submit"
+                        disabled={loadingCoupon}
                         style={{
                           backgroundColor: '#090476',
                           color: '#ffffff',
@@ -1883,15 +1914,15 @@ export default function CheckoutPage({
                           padding: '0 14px',
                           borderRadius: '4px',
                           border: 'none',
-                          cursor: 'pointer'
+                          cursor: loadingCoupon ? 'wait' : 'pointer'
                         }}
                       >
-                        APLICAR
+                        {loadingCoupon ? '...' : 'APLICAR'}
                       </button>
                     </div>
-                    {couponError && <span style={{ fontSize: '11px', color: '#e74c3c', marginTop: '4px', display: 'block' }}>{couponError}</span>}
+                    {couponError && <span style={{ fontSize: '11px', color: '#e74c3c', marginTop: '6px', display: 'block' }}>{couponError}</span>}
                   </form>
-                )}
+                ) : null}
               </div>
 
             </div>
