@@ -661,9 +661,9 @@ export default function CheckoutPage({
     try {
       saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
 
-      const apiItems = cartItems.map(i => ({
+      let apiItems = cartItems.map(i => ({
         quantity: Number(i.quantity) || 1,
-        price: Math.round(Number(i.price) * 100),
+        price: Math.max(100, Math.round(Number(i.price || 0) * 100)),
         description: String(i.title || i.name || 'Produto Impressão 3D').substring(0, 60)
       }));
 
@@ -675,39 +675,76 @@ export default function CheckoutPage({
         });
       }
 
-      // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO, TRAVADO e BLOQUEADO ao cliente
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
-      const cleanPhone = phone.replace(/\D/g, '');
-      const formattedPhone = cleanPhone ? `+55${cleanPhone}` : '+5511999999999';
-      const customerFullName = `${firstName.trim()} ${lastName.trim()}`.trim() || 'Cliente Infinity 3D';
-
-      const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          handle: 'lays-moreira-rodrigues',
-          redirect_url: `${window.location.origin}/#/sucesso`,
-          webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
-          order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
-          customer: {
-            name: customerFullName,
-            email: email.trim() || 'cliente@email.com',
-            phone_number: formattedPhone
-          },
-          items: apiItems
-        })
-      });
-
-      if (apiRes.ok) {
-        const apiData = await apiRes.json();
-        const checkoutUrl = apiData.url || apiData.checkout_url;
-        if (checkoutUrl) {
-          window.location.href = checkoutUrl;
-          return;
-        }
+      if (apiItems.length === 0 && grandTotal > 0) {
+        apiItems = [{
+          quantity: 1,
+          price: Math.max(100, Math.round(Number(grandTotal) * 100)),
+          description: 'Pedido Infinity 3D'
+        }];
       }
 
-      // 2. Se a API retornar erro de validação, tenta via Edge Function do Supabase
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
+      const cleanDigitsPhone = phone.replace(/\D/g, '');
+      const validPhone = (cleanDigitsPhone.length === 10 || cleanDigitsPhone.length === 11) ? `+55${cleanDigitsPhone}` : null;
+      const customerFullName = `${firstName.trim()} ${lastName.trim()}`.trim() || 'Cliente Infinity 3D';
+
+      const payload = {
+        handle: 'lays-moreira-rodrigues',
+        redirect_url: `${window.location.origin}/#/sucesso`,
+        webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
+        order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+        items: apiItems
+      };
+
+      if (validPhone && email.trim()) {
+        payload.customer = {
+          name: customerFullName,
+          email: email.trim(),
+          phone_number: validPhone
+        };
+      }
+
+      // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO, TRAVADO e BLOQUEADO ao cliente
+      let checkoutUrl = null;
+
+      try {
+        const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          checkoutUrl = apiData.url || apiData.checkout_url;
+        } else {
+          // Se falhou por validação de campos do customer, tenta imediatamente com itens essenciais
+          const retryRes = await fetch('https://api.checkout.infinitepay.io/links', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              handle: 'lays-moreira-rodrigues',
+              redirect_url: `${window.location.origin}/#/sucesso`,
+              webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
+              order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+              items: apiItems
+            })
+          });
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            checkoutUrl = retryData.url || retryData.checkout_url;
+          }
+        }
+      } catch (apiErr) {
+        console.warn('Tentativa direta falhou, verificando fallback:', apiErr);
+      }
+
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      // 2. Se a API externa não respondeu, tenta via Edge Function do Supabase
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
       const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
         method: 'POST',
@@ -732,7 +769,7 @@ export default function CheckoutPage({
         }
       }
 
-      setPaymentError('Não foi possível gerar a cobrança travada da InfinitePay. Verifique sua conexão e tente novamente.');
+      setPaymentError('Não foi possível gerar a cobrança da InfinitePay. Por favor, tente novamente.');
       setIsSubmitting(false);
     } catch (err) {
       console.error('Erro ao gerar pagamento travado da InfinitePay:', err);
