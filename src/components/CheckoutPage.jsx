@@ -682,6 +682,7 @@ export default function CheckoutPage({
       
       let checkoutUrl = null;
 
+      // 1. Tenta gerar via Edge Function do Supabase (se disponível)
       try {
         const res = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
           method: 'POST',
@@ -705,24 +706,58 @@ export default function CheckoutPage({
           }
         }
       } catch (e) {
-        console.warn('Edge Function indisponível, utilizando fallback para InfinitePay:', e);
+        console.warn('Edge Function indisponível, gerando link com preço bloqueado via API oficial:', e);
       }
 
-      // Se a Edge Function retornar erro ou não estiver publicada no Supabase, utiliza o link direto do Handle oficial
+      // 2. Se a Edge Function não retornou link com token travado, gera DIRETO via API oficial da InfinitePay (Garante Valor FIXO e BLOQUEADO ao cliente)
+      if (!checkoutUrl || !checkoutUrl.includes('lenc=')) {
+        try {
+          const apiItems = cartItems.map(i => ({
+            quantity: Number(i.quantity) || 1,
+            price: Math.round(Number(i.price) * 100),
+            description: String(i.title || i.name || 'Produto Impressão 3D').substring(0, 60)
+          }));
+
+          if (shippingCost > 0) {
+            apiItems.push({
+              quantity: 1,
+              price: Math.round(Number(shippingCost) * 100),
+              description: 'Frete de Entrega'
+            });
+          }
+
+          const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              handle: 'lays-moreira-rodrigues',
+              redirect_url: `${window.location.origin}/#/sucesso`,
+              order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+              items: apiItems
+            })
+          });
+
+          if (apiRes.ok) {
+            const apiData = await apiRes.json();
+            if (apiData.url || apiData.checkout_url) {
+              checkoutUrl = apiData.url || apiData.checkout_url;
+            }
+          }
+        } catch (apiErr) {
+          console.error('Erro ao chamar API oficial da InfinitePay:', apiErr);
+        }
+      }
+
+      // Fallback de segurança se nenhuma API respondeu
       if (!checkoutUrl) {
         const totalAmountInCents = Math.round(grandTotal * 100);
-        const params = new URLSearchParams();
-        if (totalAmountInCents > 0) params.append('amount', totalAmountInCents.toString());
-        if (activeOrderIdRef.current) params.append('order_id', activeOrderIdRef.current);
-        params.append('redirect_url', `${window.location.origin}/#/sucesso`);
-        checkoutUrl = `https://pay.infinitepay.io/lays-moreira-rodrigues?${params.toString()}`;
+        checkoutUrl = `https://pay.infinitepay.io/lays-moreira-rodrigues?amount=${totalAmountInCents}`;
       }
 
       window.location.href = checkoutUrl;
       return;
     } catch (err) {
       console.error('Erro ao gerar pagamento da InfinitePay:', err);
-      // Fallback final direto para a InfinitePay em caso de qualquer exceção imprevista
       const totalInCents = Math.round(grandTotal * 100);
       window.location.href = `https://pay.infinitepay.io/lays-moreira-rodrigues?amount=${totalInCents}`;
       return;
