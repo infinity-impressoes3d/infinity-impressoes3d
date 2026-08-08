@@ -708,7 +708,6 @@ export default function CheckoutPage({
       }
 
       // 2. Se a API retornar erro de validação, tenta via Edge Function do Supabase
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
       const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
         method: 'POST',
