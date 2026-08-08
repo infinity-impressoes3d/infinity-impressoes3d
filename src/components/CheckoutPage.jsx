@@ -652,30 +652,10 @@ export default function CheckoutPage({
     }
   };
 
-  // Step 3 Submit Order Placement (Mercado Pago Integration)
+  // Step 3 Submit Order Placement (InfinitePay Integration)
   const handlePlaceOrder = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     setPaymentError('');
-
-    if (paymentMethod === 'card') {
-      if (!cardData.name.trim()) {
-        setPaymentError('Informe o nome impresso no cartão.');
-        return;
-      }
-      if (cardData.number.replace(/\D/g, '').length < 13) {
-        setPaymentError('Informe um número de cartão de crédito/débito válido.');
-        return;
-      }
-      if (!cardData.expiry.trim() || cardData.expiry.replace(/\D/g, '').length < 4) {
-        setPaymentError('Informe a data de validade do cartão (ex: 07/25).');
-        return;
-      }
-      if (!cardData.cvv.trim() || cardData.cvv.length < 3) {
-        setPaymentError('Informe o código de segurança (CVV).');
-        return;
-      }
-    }
-
     setIsSubmitting(true);
 
     try {
@@ -698,39 +678,31 @@ export default function CheckoutPage({
       }
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
-      const res = await fetch(`${supabaseUrl}/functions/v1/create-mercadopago-preference`, {
+      const res = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: itemsPayload,
-          payer: {
-            name: `${firstName.trim()} ${lastName.trim()}`.trim(),
-            email: email.trim(),
-            phone: phone.trim(),
-            cpf: cpf.trim()
-          },
-          payment_method: paymentMethod,
-          card_details: paymentMethod === 'card' ? {
-            name: cardData.name,
-            number: cardData.number,
-            expiry: cardData.expiry,
-            cvv: cardData.cvv,
-            installments: cardData.installments
-          } : null,
-          successUrl: `${window.location.origin}/#/sucesso`,
-          cancelUrl: `${window.location.origin}/#/checkout`
+          totalAmount: grandTotal,
+          orderId: activeOrderIdRef.current,
+          redirectUrl: `${window.location.origin}/#/sucesso`
         })
       });
 
       if (res.ok) {
         const data = await res.json();
-        if (data.initPoint) {
-          window.location.href = data.initPoint;
+        if (data.checkoutUrl) {
+          window.location.href = data.checkoutUrl;
           return;
         }
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setPaymentError(errData.error || 'Erro ao gerar checkout da InfinitePay. Verifique se o Handle está cadastrado no painel.');
+        setIsSubmitting(false);
+        return;
       }
     } catch (err) {
-      console.log('Checkout Mercado Pago:', err);
+      console.log('Checkout InfinitePay:', err);
     }
 
     setTimeout(() => {
@@ -1588,343 +1560,59 @@ export default function CheckoutPage({
                   </div>
                 </div>
 
-                {/* PAYMENT METHOD SELECTOR TABS */}
+                {/* INFINITE PAY CHECKOUT BLOCK */}
                 <div>
                   <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '14px' }}>
-                    FORMA DE PAGAMENTO
+                    PAGAMENTO SEGURO
                   </h3>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-                    {/* Cartão Tab */}
-                    <div
-                      onClick={() => { setPaymentMethod('card'); setPaymentError(''); }}
-                      style={{
-                        backgroundColor: paymentMethod === 'card' ? '#0d0d14' : '#050507',
-                        border: paymentMethod === 'card' ? '2px solid #00d2ff' : '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '16px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <CreditCard size={22} color={paymentMethod === 'card' ? '#00d2ff' : '#aaaaaa'} />
-                        <div style={{
-                          width: '18px',
-                          height: '18px',
-                          borderRadius: '50%',
-                          border: paymentMethod === 'card' ? '5px solid #00d2ff' : '2px solid #555',
-                          backgroundColor: '#000'
-                        }} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff' }}>Cartão de Crédito ou Débito</div>
-                        <div style={{ fontSize: '11px', color: '#888888', marginTop: '2px' }}>Em até 12x no cartão</div>
-                      </div>
+                  {paymentError && (
+                    <div style={{
+                      backgroundColor: 'rgba(231, 76, 60, 0.12)',
+                      border: '1px solid #e74c3c',
+                      color: '#e74c3c',
+                      padding: '14px 16px',
+                      borderRadius: '10px',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginBottom: '18px'
+                    }}>
+                      <AlertCircle size={18} /> {paymentError}
                     </div>
+                  )}
 
-                    {/* PIX Tab */}
-                    <div
-                      onClick={() => { setPaymentMethod('pix'); setPaymentError(''); }}
-                      style={{
-                        backgroundColor: paymentMethod === 'pix' ? '#0d0d14' : '#050507',
-                        border: paymentMethod === 'pix' ? '2px solid #27ae60' : '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px',
-                        padding: '16px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <QrCode size={22} color={paymentMethod === 'pix' ? '#27ae60' : '#aaaaaa'} />
-                        <div style={{
-                          width: '18px',
-                          height: '18px',
-                          borderRadius: '50%',
-                          border: paymentMethod === 'pix' ? '5px solid #27ae60' : '2px solid #555',
-                          backgroundColor: '#000'
-                        }} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff' }}>PIX Instantâneo</div>
-                        <div style={{ fontSize: '11px', color: '#27ae60', fontWeight: '700', marginTop: '2px' }}>Aprovação Imediata • QR Code</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {paymentError && (
-                  <div style={{
-                    backgroundColor: 'rgba(231, 76, 60, 0.12)',
-                    border: '1px solid #e74c3c',
-                    color: '#e74c3c',
-                    padding: '12px 16px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}>
-                    <AlertCircle size={18} /> {paymentError}
-                  </div>
-                )}
-
-                {/* CARD FORM (Matches Reference Screenshot Style) */}
-                {paymentMethod === 'card' && (
                   <form noValidate onSubmit={handlePlaceOrder}>
                     <div style={{
                       backgroundColor: '#09090d',
-                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      border: '1px solid rgba(39, 174, 96, 0.3)',
                       borderRadius: '16px',
                       padding: '24px',
                       boxShadow: '0 12px 32px rgba(0, 0, 0, 0.6)'
                     }}>
-                      {/* Header inside Box */}
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
-                        <div>
-                          <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#ffffff', letterSpacing: '-0.3px', marginBottom: '4px' }}>
-                            Cartão de Crédito ou Débito
-                          </h2>
-                          <p style={{ fontSize: '13px', color: '#999999', margin: 0 }}>
-                            Digite os dados do seu cartão abaixo.
-                          </p>
-                        </div>
-
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
                         <div style={{
-                          padding: '8px 12px',
-                          backgroundColor: '#14141c',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255, 255, 255, 0.08)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px'
-                        }}>
-                          {cardBrand ? (
-                            <span style={{ fontSize: '12px', fontWeight: '900', color: '#00d2ff', letterSpacing: '1px' }}>
-                              {cardBrand}
-                            </span>
-                          ) : (
-                            <CreditCard size={22} color="#ffffff" />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Name on Card Input */}
-                      <div style={{ marginBottom: '18px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
-                          Nome no cartão
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Lucy Phillipe"
-                          value={cardData.name}
-                          onChange={(e) => setCardData({ ...cardData, name: e.target.value })}
-                          style={{
-                            width: '100%',
-                            backgroundColor: '#000000',
-                            border: '1px solid rgba(255, 255, 255, 0.15)',
-                            color: '#ffffff',
-                            padding: '14px 16px',
-                            fontSize: '14px',
-                            borderRadius: '10px',
-                            outline: 'none'
-                          }}
-                          onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
-                          onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
-                        />
-                      </div>
-
-                      {/* Card Number Input */}
-                      <div style={{ marginBottom: '18px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
-                          Número do cartão
-                        </label>
-                        <div style={{ position: 'relative' }}>
-                          <input
-                            type="text"
-                            required
-                            placeholder="4439 5678 9876 5432"
-                            value={cardData.number}
-                            onChange={handleCardNumberChange}
-                            maxLength={19}
-                            style={{
-                              width: '100%',
-                              backgroundColor: '#000000',
-                              border: '1px solid rgba(255, 255, 255, 0.15)',
-                              color: '#ffffff',
-                              padding: '14px 48px 14px 16px',
-                              fontSize: '15px',
-                              fontFamily: 'monospace',
-                              letterSpacing: '1px',
-                              borderRadius: '10px',
-                              outline: 'none'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
-                            onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
-                          />
-                          <div style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)' }}>
-                            {cardBrand ? (
-                              <span style={{ fontSize: '11px', fontWeight: '900', color: '#00d2ff' }}>{cardBrand}</span>
-                            ) : (
-                              <CreditCard size={20} color="#777777" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Expiry & CVV Row */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '18px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
-                            Data de Validade
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="07 / 25"
-                            value={cardData.expiry}
-                            onChange={handleCardExpiryChange}
-                            maxLength={7}
-                            style={{
-                              width: '100%',
-                              backgroundColor: '#000000',
-                              border: '1px solid rgba(255, 255, 255, 0.15)',
-                              color: '#ffffff',
-                              padding: '14px 16px',
-                              fontSize: '14px',
-                              borderRadius: '10px',
-                              outline: 'none',
-                              textAlign: 'center'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
-                            onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
-                          />
-                        </div>
-
-                        <div>
-                          <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
-                            CVV
-                          </label>
-                          <input
-                            type="password"
-                            required
-                            placeholder="***"
-                            value={cardData.cvv}
-                            onChange={(e) => setCardData({ ...cardData, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                            maxLength={4}
-                            style={{
-                              width: '100%',
-                              backgroundColor: '#000000',
-                              border: '1px solid rgba(255, 255, 255, 0.15)',
-                              color: '#ffffff',
-                              padding: '14px 16px',
-                              fontSize: '14px',
-                              borderRadius: '10px',
-                              outline: 'none',
-                              textAlign: 'center'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#00d2ff'}
-                            onBlur={(e) => e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)'}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Option for Installments */}
-                      <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#dddddd', marginBottom: '8px' }}>
-                          Opções de Parcelamento
-                        </label>
-                        <select
-                          value={cardData.installments}
-                          onChange={(e) => setCardData({ ...cardData, installments: e.target.value })}
-                          style={{
-                            width: '100%',
-                            backgroundColor: '#000000',
-                            border: '1px solid rgba(255, 255, 255, 0.15)',
-                            color: '#ffffff',
-                            padding: '14px 16px',
-                            fontSize: '14px',
-                            borderRadius: '10px',
-                            outline: 'none',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => (
-                            <option key={num} value={num} style={{ backgroundColor: '#111111', color: '#ffffff' }}>
-                              {num}x de R$ {(grandTotal / num).toFixed(2).replace('.', ',')} {num === 1 ? '(À vista sem juros)' : 'sem juros'}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Complete Payment Button */}
-                      <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        style={{
-                          width: '100%',
-                          backgroundColor: '#090476',
-                          backgroundImage: 'linear-gradient(135deg, #090476 0%, #1d07d8 100%)',
-                          color: '#ffffff',
-                          fontWeight: '800',
-                          fontSize: '15px',
-                          letterSpacing: '0.3px',
-                          padding: '16px 0',
-                          borderRadius: '12px',
-                          border: 'none',
-                          cursor: isSubmitting ? 'wait' : 'pointer',
-                          boxShadow: '0 8px 24px rgba(9, 4, 118, 0.5)',
-                          transition: 'all 0.2s ease',
-                          opacity: isSubmitting ? 0.7 : 1
-                        }}
-                        onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1.15)'; }}
-                        onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1)'; }}
-                      >
-                        {isSubmitting ? 'PROCESSANDO PAGAMENTO...' : 'Completar Pagamento'}
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {/* PIX FORM */}
-                {paymentMethod === 'pix' && (
-                  <form noValidate onSubmit={handlePlaceOrder}>
-                    <div style={{
-                      backgroundColor: '#09090d',
-                      border: '1px solid rgba(255, 255, 255, 0.12)',
-                      borderRadius: '16px',
-                      padding: '24px',
-                      boxShadow: '0 12px 32px rgba(0, 0, 0, 0.6)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                        <div style={{
-                          padding: '10px',
+                          padding: '12px',
                           backgroundColor: 'rgba(39, 174, 96, 0.15)',
                           border: '1px solid #27ae60',
-                          borderRadius: '10px',
+                          borderRadius: '12px',
                           color: '#27ae60'
                         }}>
-                          <QrCode size={28} />
+                          <ShieldCheck size={28} />
                         </div>
                         <div>
                           <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff', margin: 0 }}>
-                            Pagamento com PIX
+                            Checkout Seguro InfinitePay
                           </h2>
-                          <p style={{ fontSize: '12px', color: '#27ae60', fontWeight: '700', margin: 0 }}>
-                            Aprovação Instantânea via Mercado Pago
+                          <p style={{ fontSize: '12px', color: '#27ae60', fontWeight: '700', margin: '2px 0 0 0' }}>
+                            PIX Instantâneo ou Cartão em até 12x
                           </p>
                         </div>
                       </div>
 
-                      <p style={{ fontSize: '13px', color: '#aaaaaa', lineHeight: 1.5, marginBottom: '20px' }}>
-                        Ao clicar em <strong>Completar Pagamento</strong>, o código PIX Copia e Cola e o QR Code serão gerados em tempo real via Mercado Pago para você pagar no aplicativo do seu banco.
+                      <p style={{ fontSize: '13px', color: '#aaaaaa', lineHeight: 1.5, marginBottom: '24px' }}>
+                        Ao clicar no botão abaixo, você será redirecionado para a tela oficial e criptografada da <strong>InfinitePay</strong> para concluir seu pagamento com total segurança por <strong>PIX</strong> ou <strong>Cartão de Crédito</strong>.
                       </p>
 
                       <button
@@ -1933,7 +1621,7 @@ export default function CheckoutPage({
                         style={{
                           width: '100%',
                           backgroundColor: '#27ae60',
-                          backgroundImage: 'linear-gradient(135deg, #27ae60 0%, #2ecc71 100%)',
+                          backgroundImage: 'linear-gradient(135deg, #27ae60 0%, #1e8449 100%)',
                           color: '#ffffff',
                           fontWeight: '800',
                           fontSize: '15px',
@@ -1944,16 +1632,20 @@ export default function CheckoutPage({
                           cursor: isSubmitting ? 'wait' : 'pointer',
                           boxShadow: '0 8px 24px rgba(39, 174, 96, 0.4)',
                           transition: 'all 0.2s ease',
-                          opacity: isSubmitting ? 0.7 : 1
+                          opacity: isSubmitting ? 0.7 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px'
                         }}
                         onMouseOver={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1.15)'; }}
                         onMouseOut={(e) => { if (!isSubmitting) e.currentTarget.style.filter = 'brightness(1)'; }}
                       >
-                        {isSubmitting ? 'GERANDO CÓDIGO PIX...' : 'Completar Pagamento com PIX'}
+                        {isSubmitting ? 'REDIRECIONANDO PARA INFINITEPAY...' : 'Ir para Pagamento Seguro (InfinitePay)'}
                       </button>
                     </div>
                   </form>
-                )}
+                </div>
 
               </div>
             )}
