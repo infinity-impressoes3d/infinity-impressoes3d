@@ -678,33 +678,53 @@ export default function CheckoutPage({
       }
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
-      const res = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: itemsPayload,
-          totalAmount: grandTotal,
-          orderId: activeOrderIdRef.current,
-          redirectUrl: `${window.location.origin}/#/sucesso`
-        })
-      });
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+      
+      let checkoutUrl = null;
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.checkoutUrl) {
-          window.location.href = data.checkoutUrl;
-          return;
+      try {
+        const res = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': anonKey,
+            'Authorization': `Bearer ${anonKey}`
+          },
+          body: JSON.stringify({
+            items: itemsPayload,
+            totalAmount: grandTotal,
+            orderId: activeOrderIdRef.current,
+            redirectUrl: `${window.location.origin}/#/sucesso`
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.checkoutUrl) {
+            checkoutUrl = data.checkoutUrl;
+          }
         }
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        setPaymentError(errData.error || 'Erro ao gerar checkout da InfinitePay. Verifique se o Handle está cadastrado no painel de controle.');
-        setIsSubmitting(false);
-        return;
+      } catch (e) {
+        console.warn('Edge Function indisponível, utilizando fallback para InfinitePay:', e);
       }
+
+      // Se a Edge Function retornar erro ou não estiver publicada no Supabase, utiliza o link direto do Handle oficial
+      if (!checkoutUrl) {
+        const totalAmountInCents = Math.round(grandTotal * 100);
+        const params = new URLSearchParams();
+        if (totalAmountInCents > 0) params.append('amount', totalAmountInCents.toString());
+        if (activeOrderIdRef.current) params.append('order_id', activeOrderIdRef.current);
+        params.append('redirect_url', `${window.location.origin}/#/sucesso`);
+        checkoutUrl = `https://pay.infinitepay.io/lays-moreira-rodrigues?${params.toString()}`;
+      }
+
+      window.location.href = checkoutUrl;
+      return;
     } catch (err) {
-      console.error('Erro na chamada da InfinitePay:', err);
-      setPaymentError('Erro de conexão ao gerar pagamento da InfinitePay. Por favor, tente novamente.');
-      setIsSubmitting(false);
+      console.error('Erro ao gerar pagamento da InfinitePay:', err);
+      // Fallback final direto para a InfinitePay em caso de qualquer exceção imprevista
+      const totalInCents = Math.round(grandTotal * 100);
+      window.location.href = `https://pay.infinitepay.io/lays-moreira-rodrigues?amount=${totalInCents}`;
       return;
     }
   };
