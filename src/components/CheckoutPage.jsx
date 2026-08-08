@@ -169,6 +169,8 @@ export default function CheckoutPage({
   // Validation Error States
   const [step1Error, setStep1Error] = useState('');
   const [step2Errors, setStep2Errors] = useState({});
+  const [leadNotice, setLeadNotice] = useState(null);
+  const [webhookUrl, setWebhookUrl] = useState('');
 
   // Shipping selection
   const [selectedShipping, setSelectedShipping] = useState({
