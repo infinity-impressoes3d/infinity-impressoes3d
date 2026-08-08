@@ -676,13 +676,24 @@ export default function CheckoutPage({
       }
 
       // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO, TRAVADO e BLOQUEADO ao cliente
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fldwlpktqjmqimpfaviw.supabase.co';
+      const cleanPhone = phone.replace(/\D/g, '');
+      const formattedPhone = cleanPhone ? `+55${cleanPhone}` : '+5511999999999';
+      const customerFullName = `${firstName.trim()} ${lastName.trim()}`.trim() || 'Cliente Infinity 3D';
+
       const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           handle: 'lays-moreira-rodrigues',
           redirect_url: `${window.location.origin}/#/sucesso`,
+          webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
           order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+          customer: {
+            name: customerFullName,
+            email: email.trim() || 'cliente@email.com',
+            phone_number: formattedPhone
+          },
           items: apiItems
         })
       });
