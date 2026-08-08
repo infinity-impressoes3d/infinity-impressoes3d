@@ -697,19 +697,16 @@ export default function CheckoutPage({
         }
       } else {
         const errData = await res.json().catch(() => ({}));
-        setPaymentError(errData.error || 'Erro ao gerar checkout da InfinitePay. Verifique se o Handle está cadastrado no painel.');
+        setPaymentError(errData.error || 'Erro ao gerar checkout da InfinitePay. Verifique se o Handle está cadastrado no painel de controle.');
         setIsSubmitting(false);
         return;
       }
     } catch (err) {
-      console.log('Checkout InfinitePay:', err);
-    }
-
-    setTimeout(() => {
+      console.error('Erro na chamada da InfinitePay:', err);
+      setPaymentError('Erro de conexão ao gerar pagamento da InfinitePay. Por favor, tente novamente.');
       setIsSubmitting(false);
-      setIsCompleted(true);
-      if (onClearCart) onClearCart();
-    }, 1200);
+      return;
+    }
   };
 
 
