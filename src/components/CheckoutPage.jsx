@@ -690,12 +690,27 @@ export default function CheckoutPage({
       const validPhone = (cleanDigitsPhone.length === 10 || cleanDigitsPhone.length === 11) ? `+55${cleanDigitsPhone}` : null;
       const customerFullName = `${firstName.trim()} ${lastName.trim()}`.trim() || 'Cliente Infinity 3D';
 
+      const cleanCep = cep.replace(/\D/g, '');
+      const streetAddress = addressData ? (addressData.logradouro || '') : '';
+      const neighborhoodAddress = addressData ? (addressData.bairro || '') : '';
+      const numberAddress = streetNumber.trim() || (noNumber ? 'S/N' : '');
+      const complementAddress = complement.trim() || '';
+
+      const addressPayload = {
+        cep: cleanCep || '69905118',
+        street: streetAddress || 'Endereço de Entrega',
+        number: numberAddress || 'S/N',
+        neighborhood: neighborhoodAddress || 'Centro',
+        complement: complementAddress
+      };
+
       const payload = {
         handle: 'lays-moreira-rodrigues',
         redirect_url: `${window.location.origin}/#/sucesso`,
         webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
         order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
-        items: apiItems
+        items: apiItems,
+        address: addressPayload
       };
 
       if (validPhone && email.trim()) {
@@ -720,7 +735,7 @@ export default function CheckoutPage({
           const apiData = await apiRes.json();
           checkoutUrl = apiData.url || apiData.checkout_url;
         } else {
-          // Se falhou por validação de campos do customer, tenta imediatamente com itens essenciais
+          // Se falhou por validação de campos do customer, tenta imediatamente com itens essenciais e endereço
           const retryRes = await fetch('https://api.checkout.infinitepay.io/links', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -729,7 +744,8 @@ export default function CheckoutPage({
               redirect_url: `${window.location.origin}/#/sucesso`,
               webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
               order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
-              items: apiItems
+              items: apiItems,
+              address: addressPayload
             })
           });
           if (retryRes.ok) {
