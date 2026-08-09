@@ -561,7 +561,7 @@ export default function CheckoutPage({
         })),
         total_amount: grandTotal || 0,
         payment_method: paymentMethod || 'pix',
-        status: stage === 'pedido_concluido' ? 'paid' : 'abandoned',
+        status: 'abandoned',
         comments: comments ? comments.trim() : null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -746,7 +746,7 @@ export default function CheckoutPage({
 
     try {
       try {
-        saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
+        saveLeadData('etapa_2_entrega', 'CARRINHO ABANDONADO (Aguardando Pagamento InfinitePay)');
       } catch (leadErr) {
         console.warn('Lead notice:', leadErr);
       }
