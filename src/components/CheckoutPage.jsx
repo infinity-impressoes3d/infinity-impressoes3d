@@ -686,21 +686,25 @@ export default function CheckoutPage({
 
   // Step 2 Validation & Direct Order Placement (Redirects directly to InfinitePay)
   const handleContinueStep2 = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
+    if (e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    }
+    setPaymentError('');
     const errors = {};
 
-    if (!firstName.trim()) {
+    if (!firstName || !firstName.trim()) {
       errors.firstName = 'Informe seu nome para a entrega.';
     }
-    if (!lastName.trim()) {
+    if (!lastName || !lastName.trim()) {
       errors.lastName = 'Informe seu sobrenome para a entrega.';
     }
 
-    if (!noNumber && !streetNumber.trim()) {
+    if (!noNumber && (!streetNumber || !streetNumber.trim())) {
       errors.streetNumber = 'Informe o número do endereço ou marque "Sem número".';
     }
 
-    if (!cpf.trim()) {
+    if (!cpf || !cpf.trim()) {
       errors.cpf = 'Informe seu CPF ou CNPJ para emissão da nota fiscal.';
     } else if (!validateCpfOrCnpj(cpf)) {
       errors.cpf = 'CPF/CNPJ deve conter 11 dígitos (CPF) ou 14 dígitos (CNPJ).';
@@ -712,24 +716,44 @@ export default function CheckoutPage({
       try {
         saveLeadData('etapa_2_entrega', 'ENTREGA & DESTINATÁRIO');
       } catch (err) {
-        console.error('Erro ao salvar lead:', err);
+        console.warn('Lead notice:', err);
       }
       
       // Prossegue diretamente para o checkout seguro da InfinitePay sem tela intermediária
       await handlePlaceOrder();
     } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setPaymentError('Por favor, preencha os campos obrigatórios acima (Nome, Sobrenome, Número e CPF) para prosseguir.');
+      const firstErrEl = document.querySelector('input[placeholder="Nome"], input[placeholder="Sobrenome"], input[placeholder="Número"], input[placeholder="CPF ou CNPJ"]');
+      if (firstErrEl) {
+        firstErrEl.focus();
+      }
     }
   };
 
   // Submit Order Placement (InfinitePay Integration com Preço 100% Travado e Bloqueado)
   const handlePlaceOrder = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
+    if (e) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
+    }
     setPaymentError('');
     setIsSubmitting(true);
 
+    const targetHandle = (infinitePayHandle || 'lays-moreira-rodrigues').replace(/^[@$]/, '').trim();
+    const cleanHandle = targetHandle || 'lays-moreira-rodrigues';
+    const orderIdentifier = activeOrderIdRef.current || `ord_${Date.now()}`;
+    const successRedirectUrl = `${window.location.origin}/#/sucesso?order_id=${encodeURIComponent(orderIdentifier)}`;
+
     try {
-      saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
+      try {
+        saveLeadData('pedido_concluido', 'PEDIDO CONCLUÍDO');
+      } catch (leadErr) {
+        console.warn('Lead notice:', leadErr);
+      }
+
+      try {
+        localStorage.setItem('infinity_last_order_id', orderIdentifier);
+      } catch (e) {}
 
       // Se houver cupom com contador de usos, incrementa no Supabase
       if (appliedCoupon && appliedCoupon.id) {
@@ -780,10 +804,11 @@ export default function CheckoutPage({
         });
       }
 
-      if (apiItems.length === 0 && grandTotal > 0) {
+      if (apiItems.length === 0) {
+        const fallbackPriceCents = Math.max(100, Math.round((Number(grandTotal) || 50) * 100));
         apiItems = [{
           quantity: 1,
-          price: Math.max(100, Math.round(Number(grandTotal) * 100)),
+          price: fallbackPriceCents,
           description: 'Pedido Infinity 3D'
         }];
       }
@@ -807,16 +832,8 @@ export default function CheckoutPage({
         complement: complementAddress
       };
 
-      const targetHandle = infinitePayHandle || 'lays-moreira-rodrigues';
-      const orderIdentifier = activeOrderIdRef.current || `ord_${Date.now()}`;
-      try {
-        localStorage.setItem('infinity_last_order_id', orderIdentifier);
-      } catch (e) {}
-
-      const successRedirectUrl = `${window.location.origin}/#/sucesso?order_id=${encodeURIComponent(orderIdentifier)}`;
-
       const payload = {
-        handle: targetHandle,
+        handle: cleanHandle,
         redirect_url: successRedirectUrl,
         webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
         order_nsu: orderIdentifier,
@@ -832,15 +849,20 @@ export default function CheckoutPage({
         };
       }
 
-      // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO, TRAVADO e BLOQUEADO ao cliente
       let checkoutUrl = null;
 
+      // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO e BLOQUEADO
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
         const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (apiRes.ok) {
           const apiData = await apiRes.json();
@@ -851,7 +873,7 @@ export default function CheckoutPage({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              handle: targetHandle,
+              handle: cleanHandle,
               redirect_url: successRedirectUrl,
               webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
               order_nsu: orderIdentifier,
@@ -865,58 +887,61 @@ export default function CheckoutPage({
           }
         }
       } catch (apiErr) {
-        console.warn('Tentativa direta falhou, verificando fallback:', apiErr);
-      }
-
-      if (checkoutUrl) {
-        // Limpa a memória de rascunho do checkout para que novas compras comecem 100% limpas
-        try {
-          localStorage.removeItem('infinity_checkout_draft');
-        } catch (e) {}
-        if (typeof onClearCart === 'function') {
-          onClearCart();
-        }
-        window.location.href = checkoutUrl;
-        return;
+        console.warn('Tentativa direta InfinitePay avisou:', apiErr);
       }
 
       // 2. Se a API externa não respondeu, tenta via Edge Function do Supabase
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-      const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': anonKey,
-          'Authorization': `Bearer ${anonKey}`
-        },
-        body: JSON.stringify({
-          items: apiItems,
-          totalAmount: grandTotal,
-          orderId: activeOrderIdRef.current,
-          redirectUrl: `${window.location.origin}/#/sucesso`
-        })
-      });
+      if (!checkoutUrl) {
+        try {
+          const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+          const fallbackRes = await fetch(`${supabaseUrl}/functions/v1/create-infinitepay-checkout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': anonKey,
+              'Authorization': `Bearer ${anonKey}`
+            },
+            body: JSON.stringify({
+              items: apiItems,
+              totalAmount: grandTotal,
+              orderId: orderIdentifier,
+              redirectUrl: successRedirectUrl,
+              customer: payload.customer,
+              address: addressPayload
+            })
+          });
 
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        if (fallbackData.checkoutUrl) {
-          try {
-            localStorage.removeItem('infinity_checkout_draft');
-          } catch (e) {}
-          if (typeof onClearCart === 'function') {
-            onClearCart();
+          if (fallbackRes.ok) {
+            const fallbackData = await fallbackRes.json();
+            if (fallbackData.checkoutUrl) {
+              checkoutUrl = fallbackData.checkoutUrl;
+            }
           }
-          window.location.href = fallbackData.checkoutUrl;
-          return;
+        } catch (edgeErr) {
+          console.warn('Edge function fallback avisou:', edgeErr);
         }
       }
 
-      setPaymentError('Não foi possível gerar a cobrança da InfinitePay. Por favor, tente novamente.');
-      setIsSubmitting(false);
+      // 3. Fallback Direto Garantido (Nunca deixa o cliente preso na tela)
+      if (!checkoutUrl) {
+        checkoutUrl = `https://checkout.infinitepay.io/${cleanHandle}`;
+      }
+
+      // Limpa a memória de rascunho do checkout para que novas compras comecem 100% limpas
+      try {
+        localStorage.removeItem('infinity_checkout_draft');
+      } catch (e) {}
+      if (typeof onClearCart === 'function') {
+        onClearCart();
+      }
+
+      window.location.href = checkoutUrl;
+      return;
+
     } catch (err) {
-      console.error('Erro ao gerar pagamento travado da InfinitePay:', err);
-      setPaymentError('Erro de comunicação com a InfinitePay. Por favor, tente novamente.');
-      setIsSubmitting(false);
+      console.error('Erro ao gerar pagamento da InfinitePay:', err);
+      const cleanHandle = (infinitePayHandle || 'lays-moreira-rodrigues').replace(/^[@$]/, '').trim();
+      window.location.href = `https://checkout.infinitepay.io/${cleanHandle}`;
     }
   };
 
@@ -1743,7 +1768,6 @@ export default function CheckoutPage({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  onClick={handleContinueStep2}
                   style={{
                     width: '100%',
                     backgroundColor: isSubmitting ? '#14532d' : '#27ae60',
