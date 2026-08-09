@@ -853,16 +853,11 @@ export default function CheckoutPage({
 
       // 1. Gera o Checkout Oficial da InfinitePay com preço FIXO e BLOQUEADO
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-
         const apiRes = await fetch('https://api.checkout.infinitepay.io/links', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal
+          body: JSON.stringify(payload)
         });
-        clearTimeout(timeoutId);
 
         if (apiRes.ok) {
           const apiData = await apiRes.json();
@@ -922,26 +917,25 @@ export default function CheckoutPage({
         }
       }
 
-      // 3. Fallback Direto Garantido (Nunca deixa o cliente preso na tela)
-      if (!checkoutUrl) {
-        checkoutUrl = `https://checkout.infinitepay.io/${cleanHandle}`;
+      if (checkoutUrl) {
+        // Limpa a memória de rascunho do checkout para que novas compras comecem 100% limpas
+        try {
+          localStorage.removeItem('infinity_checkout_draft');
+        } catch (e) {}
+        if (typeof onClearCart === 'function') {
+          onClearCart();
+        }
+        window.location.href = checkoutUrl;
+        return;
       }
 
-      // Limpa a memória de rascunho do checkout para que novas compras comecem 100% limpas
-      try {
-        localStorage.removeItem('infinity_checkout_draft');
-      } catch (e) {}
-      if (typeof onClearCart === 'function') {
-        onClearCart();
-      }
-
-      window.location.href = checkoutUrl;
-      return;
+      setPaymentError('Não foi possível gerar o link de pagamento seguro da InfinitePay. Por favor, tente novamente.');
+      setIsSubmitting(false);
 
     } catch (err) {
       console.error('Erro ao gerar pagamento da InfinitePay:', err);
-      const cleanHandle = (infinitePayHandle || 'lays-moreira-rodrigues').replace(/^[@$]/, '').trim();
-      window.location.href = `https://checkout.infinitepay.io/${cleanHandle}`;
+      setPaymentError('Erro de comunicação com a InfinitePay. Por favor, tente novamente.');
+      setIsSubmitting(false);
     }
   };
 
