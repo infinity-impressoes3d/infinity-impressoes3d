@@ -114,8 +114,8 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
           }
         }
 
-        // Calcula o número do pedido com o dígito "3" na frente (Ex: compra 1 -> #31, compra 10 -> #310)
-        let calculatedDisplayNum = '31';
+        // Calcula o número do pedido iniciando em 30 (1ª compra = #30, 2ª = #31, 15ª = #44/#45, etc.)
+        let calculatedDisplayNum = '30';
 
         if (activeOrder) {
           setOrder(activeOrder);
@@ -128,25 +128,25 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
               .lte('created_at', activeOrder.created_at || new Date().toISOString());
 
             if (!countErr && typeof count === 'number' && count > 0) {
-              calculatedDisplayNum = `3${count}`;
+              calculatedDisplayNum = String(29 + count);
             } else {
               // Fallback numérico com base no ID
-              const idNum = Math.abs(activeOrder.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 90 + 10);
-              calculatedDisplayNum = `3${idNum}`;
+              const idNum = Math.abs(activeOrder.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 50 + 30);
+              calculatedDisplayNum = String(idNum);
             }
           } catch (e) {
-            calculatedDisplayNum = '31';
+            calculatedDisplayNum = '30';
           }
         } else {
           // Fallback se nenhum pedido no banco
-          calculatedDisplayNum = '31';
+          calculatedDisplayNum = '30';
         }
 
         setOrderNumber(calculatedDisplayNum);
 
       } catch (err) {
         console.error('Erro ao confirmar pedido na página de sucesso:', err);
-        setOrderNumber('31');
+        setOrderNumber('30');
       } finally {
         setLoading(false);
       }
@@ -164,7 +164,7 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
 
   const getWhatsAppSupportLink = () => {
     const phone = '5534998919211'; // WhatsApp da Infinity 3D
-    const msg = `Olá! 👋 Acabei de concluir meu pedido na Infinity 3D (Pedido #${orderNumber || '31'}). Gostaria de acompanhar as etapas de produção e envio!`;
+    const msg = `Olá! 👋 Acabei de concluir meu pedido na Infinity 3D (Pedido #${orderNumber || '30'}). Gostaria de acompanhar as etapas de produção e envio!`;
     return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
   };
 
@@ -261,7 +261,7 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span style={{ fontSize: '32px', fontWeight: '900', color: '#ffffff', letterSpacing: '2px' }}>
-                #{orderNumber || '31'}
+                #{orderNumber || '30'}
               </span>
               <button
                 type="button"
@@ -289,7 +289,7 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
           {/* Etapas de Acompanhamento */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
             gap: '16px',
             textAlign: 'left',
             marginBottom: '36px'
@@ -314,17 +314,6 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
               <div style={{ color: '#3498db', marginBottom: '8px' }}><PackageCheck size={22} /></div>
               <h4 style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff', margin: '0 0 4px 0' }}>2. Impressão 3D & Preparação</h4>
               <p style={{ fontSize: '12px', color: '#888888', margin: 0, lineHeight: 1.4 }}>Seus produtos já estão na fila de modelagem e acabamento.</p>
-            </div>
-
-            <div style={{
-              backgroundColor: '#0c0c10',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
-              borderRadius: '14px',
-              padding: '18px'
-            }}>
-              <div style={{ color: '#e67e22', marginBottom: '8px' }}><Truck size={22} /></div>
-              <h4 style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff', margin: '0 0 4px 0' }}>3. Envio & Rastreamento</h4>
-              <p style={{ fontSize: '12px', color: '#888888', margin: 0, lineHeight: 1.4 }}>Você receberá o código de rastreio direto no seu WhatsApp/E-mail.</p>
             </div>
           </div>
 
