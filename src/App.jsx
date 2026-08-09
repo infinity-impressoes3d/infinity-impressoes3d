@@ -11,6 +11,7 @@ import SearchModal from './components/SearchModal';
 import Footer from './components/Footer';
 import CollectionPage from './components/CollectionPage';
 import CheckoutPage from './components/CheckoutPage';
+import SuccessPage from './components/SuccessPage';
 
 export default function App() {
   const [productsList, setProductsList] = useState(PRODUCTS);
@@ -162,6 +163,10 @@ export default function App() {
       }
       if (hash === '#/checkout') {
         setCurrentView('checkout');
+        return;
+      }
+      if (hash.startsWith('#/sucesso') || hash.startsWith('#/pedido-concluido')) {
+        setCurrentView('success');
         return;
       }
       if (!hash || hash === '#' || hash === '#products') {
@@ -338,6 +343,13 @@ export default function App() {
             onClearCart={() => setCartItems([])}
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveItem}
+          />
+        )}
+
+        {currentView === 'success' && (
+          <SuccessPage
+            onGoHome={handleGoHome}
+            onClearCart={() => setCartItems([])}
           />
         )}
       </main>

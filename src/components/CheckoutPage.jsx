@@ -808,12 +808,18 @@ export default function CheckoutPage({
       };
 
       const targetHandle = infinitePayHandle || 'lays-moreira-rodrigues';
+      const orderIdentifier = activeOrderIdRef.current || `ord_${Date.now()}`;
+      try {
+        localStorage.setItem('infinity_last_order_id', orderIdentifier);
+      } catch (e) {}
+
+      const successRedirectUrl = `${window.location.origin}/#/sucesso?order_id=${encodeURIComponent(orderIdentifier)}`;
 
       const payload = {
         handle: targetHandle,
-        redirect_url: `${window.location.origin}/#/sucesso`,
+        redirect_url: successRedirectUrl,
         webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
-        order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+        order_nsu: orderIdentifier,
         items: apiItems,
         address: addressPayload
       };
@@ -846,9 +852,9 @@ export default function CheckoutPage({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               handle: targetHandle,
-              redirect_url: `${window.location.origin}/#/sucesso`,
+              redirect_url: successRedirectUrl,
               webhook_url: `${supabaseUrl}/functions/v1/infinitepay-webhook?secret=infinity_3d_secret_token_2026`,
-              order_nsu: activeOrderIdRef.current || `ord_${Date.now()}`,
+              order_nsu: orderIdentifier,
               items: apiItems,
               address: addressPayload
             })
