@@ -19,10 +19,41 @@ export default function App() {
 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [isQuickViewOpen, setIsQuickViewOpen] = useState(false);
-  const [cartItems, setCartItems] = useState([]);
+  
+  // Persistência Completa dos Produtos do Carrinho na Memória Local
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem('infinity_cart_items');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   
+  // Sincronização automática do carrinho no localStorage
+  useEffect(() => {
+    try {
+      if (cartItems && cartItems.length > 0) {
+        localStorage.setItem('infinity_cart_items', JSON.stringify(cartItems));
+      } else {
+        localStorage.removeItem('infinity_cart_items');
+      }
+    } catch (e) {}
+  }, [cartItems]);
+
+  // Função centralizada para limpar o carrinho e o rascunho após a compra concluída
+  const handleClearCartAndDraft = () => {
+    setCartItems([]);
+    try {
+      localStorage.removeItem('infinity_cart_items');
+      localStorage.removeItem('infinity_checkout_draft');
+      localStorage.removeItem('infinity_last_order_id');
+    } catch (e) {}
+  };
+
   // Navigation Routing: 'home' | 'catalog' | 'collection' | 'product' | 'checkout'
   const [currentView, setCurrentView] = useState('home');
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -340,7 +371,7 @@ export default function App() {
           <CheckoutPage
             cartItems={cartItems}
             onGoHome={handleGoHome}
-            onClearCart={() => setCartItems([])}
+            onClearCart={handleClearCartAndDraft}
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveItem}
           />
@@ -349,7 +380,7 @@ export default function App() {
         {currentView === 'success' && (
           <SuccessPage
             onGoHome={handleGoHome}
-            onClearCart={() => setCartItems([])}
+            onClearCart={handleClearCartAndDraft}
           />
         )}
       </main>

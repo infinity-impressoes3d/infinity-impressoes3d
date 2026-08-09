@@ -634,6 +634,12 @@ export default function CheckoutPage({
     if (e && e.preventDefault) e.preventDefault();
     setStep1Error('');
 
+    if (!cartItems || cartItems.length === 0) {
+      setStep1Error('Seu carrinho está vazio. Adicione pelo menos um produto na loja antes de continuar.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     if (!validateEmail(email)) {
       setStep1Error('Por favor informe um e-mail válido (ex: seu@email.com).');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -670,7 +676,6 @@ export default function CheckoutPage({
     }
 
     // Capture Lead at Step 1 (Etapa 1 - Email + WhatsApp + CEP + Carrinho)
-    // Mantém o MESMO ID para a mesma compra (1 única linha que vai se atualizando)
     if (!activeOrderIdRef.current) {
       activeOrderIdRef.current = generateValidUUID();
     }
@@ -692,6 +697,11 @@ export default function CheckoutPage({
     }
     setPaymentError('');
     const errors = {};
+
+    if (!cartItems || cartItems.length === 0) {
+      setPaymentError('Seu carrinho está vazio. Adicione produtos na loja antes de prosseguir.');
+      return;
+    }
 
     if (!firstName || !firstName.trim()) {
       errors.firstName = 'Informe seu nome para a entrega.';
@@ -737,6 +747,12 @@ export default function CheckoutPage({
       if (typeof e.stopPropagation === 'function') e.stopPropagation();
     }
     setPaymentError('');
+
+    if (!cartItems || cartItems.length === 0) {
+      setPaymentError('Seu carrinho está vazio. Adicione pelo menos um produto para continuar.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const targetHandle = (infinitePayHandle || 'lays-moreira-rodrigues').replace(/^[@$]/, '').trim();
@@ -1259,10 +1275,61 @@ export default function CheckoutPage({
           {/* LEFT COLUMN: MULTI-STEP FORM (8 COLS ON DESKTOP) */}
           <div style={{ gridColumn: 'span 12' }} className="checkout-main-form">
             
+            {/* Se o carrinho estiver vazio */}
+            {(!cartItems || cartItems.length === 0) && (
+              <div style={{
+                backgroundColor: '#0a0a0e',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '16px',
+                padding: '48px 24px',
+                textAlign: 'center',
+                marginBottom: '32px'
+              }}>
+                <div style={{
+                  width: '64px',
+                  height: '64px',
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(231, 76, 60, 0.15)',
+                  color: '#e74c3c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px auto'
+                }}>
+                  <ShoppingBag size={32} />
+                </div>
+                <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#ffffff', marginBottom: '8px' }}>
+                  Seu carrinho está vazio
+                </h3>
+                <p style={{ fontSize: '14px', color: '#888888', maxWidth: '420px', margin: '0 auto 24px auto', lineHeight: 1.5 }}>
+                  Você não possui nenhum produto no carrinho no momento. Para prosseguir para o pagamento, escolha seus produtos na loja.
+                </p>
+                <button
+                  type="button"
+                  onClick={onGoHome}
+                  style={{
+                    backgroundColor: '#090476',
+                    color: '#ffffff',
+                    fontWeight: '800',
+                    fontSize: '14px',
+                    padding: '14px 28px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <ShoppingBag size={16} /> Ver Produtos na Loja
+                </button>
+              </div>
+            )}
+
             {/* ------------------------------------------------------------- */}
             {/* STEP 1: CONTACT & CEP                                        */}
             {/* ------------------------------------------------------------- */}
-            {step === 1 && (
+            {cartItems && cartItems.length > 0 && step === 1 && (
               <form noValidate onSubmit={handleContinueStep1}>
                 {step1Error && (
                   <div style={{
@@ -1470,7 +1537,7 @@ export default function CheckoutPage({
             {/* ------------------------------------------------------------- */}
             {/* STEP 2: SHIPPING OPTION & RECIPIENT                          */}
             {/* ------------------------------------------------------------- */}
-            {step === 2 && (
+            {cartItems && cartItems.length > 0 && step === 2 && (
               <form noValidate onSubmit={handleContinueStep2}>
                 {/* DADOS DE CONTATO SUMMARY */}
                 <div style={{ marginBottom: '24px' }}>

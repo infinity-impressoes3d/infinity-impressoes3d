@@ -30,7 +30,9 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
       onClearCart();
     }
     try {
+      localStorage.removeItem('infinity_cart_items');
       localStorage.removeItem('infinity_checkout_draft');
+      localStorage.removeItem('infinity_last_order_id');
     } catch (e) {}
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
