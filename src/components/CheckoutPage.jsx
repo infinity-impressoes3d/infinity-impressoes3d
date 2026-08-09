@@ -300,6 +300,58 @@ export default function CheckoutPage({
     loadStripeKey();
   }, []);
 
+  // 1. Restauração Automática da Memória de Rascunho (se o cliente saiu e voltou)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('infinity_checkout_draft');
+      if (saved) {
+        const draft = JSON.parse(saved);
+        if (draft.email) setEmail(draft.email);
+        if (draft.phone) setPhone(draft.phone);
+        if (draft.firstName) setFirstName(draft.firstName);
+        if (draft.lastName) setLastName(draft.lastName);
+        if (draft.cpf) setCpf(draft.cpf);
+        if (draft.cep) setCep(draft.cep);
+        if (draft.addressData) setAddressData(draft.addressData);
+        if (draft.streetNumber) setStreetNumber(draft.streetNumber);
+        if (draft.complement) setComplement(draft.complement);
+        if (draft.noNumber !== undefined) setNoNumber(draft.noNumber);
+        if (draft.comments) {
+          setComments(draft.comments);
+          setShowCommentsInput(true);
+        }
+        if (draft.selectedShipping) setSelectedShipping(draft.selectedShipping);
+        if (draft.step && draft.step === 2 && draft.cep) setStep(2);
+      }
+    } catch (e) {
+      console.warn('Aviso rascunho checkout:', e);
+    }
+  }, []);
+
+  // 2. Salvamento Automático Contínuo da Memória em Tempo Real
+  useEffect(() => {
+    if (email || phone || firstName || lastName || cpf || cep || streetNumber || comments) {
+      try {
+        const draft = {
+          email,
+          phone,
+          firstName,
+          lastName,
+          cpf,
+          cep,
+          addressData,
+          streetNumber,
+          complement,
+          noNumber,
+          comments,
+          selectedShipping,
+          step
+        };
+        localStorage.setItem('infinity_checkout_draft', JSON.stringify(draft));
+      } catch (e) {}
+    }
+  }, [email, phone, firstName, lastName, cpf, cep, addressData, streetNumber, complement, noNumber, comments, selectedShipping, step]);
+
   // Auto scroll to top on mount and step change
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -811,6 +863,13 @@ export default function CheckoutPage({
       }
 
       if (checkoutUrl) {
+        // Limpa a memória de rascunho do checkout para que novas compras comecem 100% limpas
+        try {
+          localStorage.removeItem('infinity_checkout_draft');
+        } catch (e) {}
+        if (typeof onClearCart === 'function') {
+          onClearCart();
+        }
         window.location.href = checkoutUrl;
         return;
       }
@@ -835,6 +894,12 @@ export default function CheckoutPage({
       if (fallbackRes.ok) {
         const fallbackData = await fallbackRes.json();
         if (fallbackData.checkoutUrl) {
+          try {
+            localStorage.removeItem('infinity_checkout_draft');
+          } catch (e) {}
+          if (typeof onClearCart === 'function') {
+            onClearCart();
+          }
           window.location.href = fallbackData.checkoutUrl;
           return;
         }
