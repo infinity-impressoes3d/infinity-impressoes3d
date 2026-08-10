@@ -5,7 +5,6 @@ import {
   Truck,
   ShieldCheck,
   CreditCard,
-  Ruler,
   ShoppingBag,
   Check,
   ArrowLeft,
@@ -13,7 +12,6 @@ import {
   Share2,
   Heart
 } from 'lucide-react';
-import SizeGuideModal from './SizeGuideModal';
 import PaymentDetailsModal from './PaymentDetailsModal';
 import ProductCard from './ProductCard';
 import ShippingCalculator from './ShippingCalculator';
@@ -25,7 +23,6 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
   const [selectedColor, setSelectedColor] = useState(product?.colors?.[0] || { name: 'Padrão' });
   const [quantity, setQuantity] = useState(1);
   const [addedSuccess, setAddedSuccess] = useState(false);
-  const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
   const [isPaymentDetailsOpen, setIsPaymentDetailsOpen] = useState(false);
 
   // Shipping Calculator state
@@ -351,24 +348,10 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
             {/* Size Selector (Only displayed if product has size variants) */}
             {Boolean(product.has_variants || (product.sizes && product.sizes.length > 0 && product.sizes[0] !== 'Único')) && (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ marginBottom: '8px' }}>
                   <label style={{ fontSize: '12px', fontWeight: '700', color: '#cccccc' }}>
                     Tamanho: <span style={{ color: '#ffffff', fontWeight: '800' }}>{selectedSize}</span>
                   </label>
-                  <button
-                    onClick={() => setIsSizeGuideOpen(true)}
-                    style={{
-                      fontSize: '11px',
-                      color: '#3498db',
-                      fontWeight: '700',
-                      textDecoration: 'underline',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
-                    <Ruler size={14} /> Guia de medidas
-                  </button>
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -565,7 +548,6 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
       </div>
 
       {/* Helper Modals */}
-      <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => setIsSizeGuideOpen(false)} />
       <PaymentDetailsModal isOpen={isPaymentDetailsOpen} onClose={() => setIsPaymentDetailsOpen(false)} price={product.price} />
 
       {/* CSS adjustments for desktop responsive layout */}
