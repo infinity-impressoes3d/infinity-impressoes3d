@@ -93,9 +93,14 @@ export default function App() {
               category: allColIds[0] || p.collection_id || null,
               rating: 5.0,
               reviewsCount: 12,
-              isNew: true
+              isNew: true,
+              isPinned: Boolean(p.is_pinned)
             };
           });
+
+          // Ordena garantindo que os produtos fixados fiquem sempre no topo da vitrine
+          formattedProducts.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+
           setProductsList(formattedProducts);
         }
 

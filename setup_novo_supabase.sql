@@ -15,9 +15,12 @@ CREATE TABLE IF NOT EXISTS public.products (
   images JSONB DEFAULT '[]'::jsonb,
   collection_id TEXT,
   active BOOLEAN DEFAULT TRUE,
+  is_pinned BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;
 
 -- 2. TABELA DE COLEÇÕES / CATEGORIAS
 CREATE TABLE IF NOT EXISTS public.collections (
