@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Package, Printer, Truck, CheckCircle2, AlertCircle, ArrowLeft, LogOut, Clock, ShieldCheck, XCircle, AlertTriangle } from 'lucide-react';
+import { Search, Package, Printer, Truck, CheckCircle2, AlertCircle, ArrowLeft, LogOut, Clock, ShieldCheck, XCircle, AlertTriangle, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
 const SESSION_KEY = 'infinity_order_tracking_session';
@@ -680,6 +680,45 @@ export default function OrderStatusPage({ onGoHome }) {
                       )}
                     </div>
                   </div>
+
+                  {/* Endereço de Entrega Completo */}
+                  {order.shipping_address && Object.keys(order.shipping_address).length > 0 && (
+                    <div style={{
+                      marginTop: '20px',
+                      paddingTop: '16px',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        fontWeight: '800',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.8px',
+                        color: '#3498db',
+                        marginBottom: '8px'
+                      }}>
+                        <MapPin size={14} />
+                        <span>Endereço de Entrega</span>
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.5 }}>
+                        {(order.shipping_address.street || order.shipping_address.logradouro) && (
+                          <div>
+                            <strong>Rua:</strong> {order.shipping_address.street || order.shipping_address.logradouro}, Nº {order.shipping_address.number || order.shipping_address.numero || 'S/N'}
+                            {(order.shipping_address.complement || order.shipping_address.complemento) && (
+                              <span> ({order.shipping_address.complement || order.shipping_address.complemento})</span>
+                            )}
+                          </div>
+                        )}
+                        <div>
+                          {order.shipping_address.neighborhood || order.shipping_address.bairro ? `${order.shipping_address.neighborhood || order.shipping_address.bairro} • ` : ''}
+                          {order.shipping_address.city || order.shipping_address.localidade || ''} - {order.shipping_address.state || order.shipping_address.uf || ''}
+                          {order.shipping_address.cep ? ` (CEP: ${order.shipping_address.cep})` : ''}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               );

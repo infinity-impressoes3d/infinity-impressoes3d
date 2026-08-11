@@ -304,15 +304,27 @@ export default function CheckoutPage({
   useEffect(() => {
     try {
       const saved = localStorage.getItem('infinity_checkout_draft');
+      const savedOrderId = localStorage.getItem('infinity_active_checkout_order_id');
+      if (savedOrderId && savedOrderId.includes('-')) {
+        activeOrderIdRef.current = savedOrderId;
+      }
+
       if (saved) {
         const draft = JSON.parse(saved);
+        if (draft.orderId && draft.orderId.includes('-')) {
+          activeOrderIdRef.current = draft.orderId;
+        }
         if (draft.email) setEmail(draft.email);
         if (draft.phone) setPhone(draft.phone);
         if (draft.firstName) setFirstName(draft.firstName);
         if (draft.lastName) setLastName(draft.lastName);
         if (draft.cpf) setCpf(draft.cpf);
         if (draft.cep) setCep(draft.cep);
-        if (draft.addressData) setAddressData(draft.addressData);
+        if (draft.addressData) {
+          setAddressData(draft.addressData);
+        } else if (draft.cep && draft.cep.replace(/\D/g, '').length === 8) {
+          fetchAddressFromViaCep(draft.cep.replace(/\D/g, ''));
+        }
         if (draft.streetNumber) setStreetNumber(draft.streetNumber);
         if (draft.complement) setComplement(draft.complement);
         if (draft.noNumber !== undefined) setNoNumber(draft.noNumber);
@@ -328,11 +340,12 @@ export default function CheckoutPage({
     }
   }, []);
 
-  // 2. Salvamento Automático Contínuo da Memória em Tempo Real
+  // 2. Salvamento Automático Contínuo da Memória em Tempo Real e Sincronização Supabase
   useEffect(() => {
-    if (email || phone || firstName || lastName || cpf || cep || streetNumber || comments) {
+    if (email || phone || firstName || lastName || cpf || cep || streetNumber || complement || comments) {
       try {
         const draft = {
+          orderId: activeOrderIdRef.current,
           email,
           phone,
           firstName,
@@ -348,7 +361,19 @@ export default function CheckoutPage({
           step
         };
         localStorage.setItem('infinity_checkout_draft', JSON.stringify(draft));
+        if (activeOrderIdRef.current) {
+          localStorage.setItem('infinity_active_checkout_order_id', activeOrderIdRef.current);
+        }
       } catch (e) {}
+    }
+
+    // Auto-sincronização com o Supabase sempre que o cliente digita qualquer dado (debounced 500ms)
+    if (email.trim() || phone.trim()) {
+      const timer = setTimeout(() => {
+        const currentStage = step === 1 ? 'etapa_1_contato' : 'etapa_2_entrega';
+        saveLeadData(currentStage);
+      }, 500);
+      return () => clearTimeout(timer);
     }
   }, [email, phone, firstName, lastName, cpf, cep, addressData, streetNumber, complement, noNumber, comments, selectedShipping, step]);
 
@@ -400,8 +425,6 @@ export default function CheckoutPage({
     }
     setCep(masked);
     setCepError('');
-    setStep1Error('');
-
     if (raw.length === 8) {
       fetchAddressFromViaCep(raw);
     }
@@ -423,28 +446,25 @@ export default function CheckoutPage({
     }
   }, [cartItems, addressData]);
 
-  // Fetch Address from ViaCEP and calculate rate by Weight + Distance (UF)
+  // Fetch Address from ViaCEP with timeout and error handling
   const fetchAddressFromViaCep = async (cleanCep) => {
+    if (cleanCep.length !== 8) return null;
     setLoadingCep(true);
     setCepError('');
     try {
-      const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+      const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error('Falha ao conectar com o serviço de CEP.');
       const data = await res.json();
       if (data.erro) {
-        setCepError('CEP inexistente na base dos Correios. Verifique o número digitado.');
+        setCepError('CEP não encontrado. Verifique o número digitado.');
+        setAddressData(null);
         return null;
-      } else {
-        setAddressData(data);
-        const calculation = calculateShippingRates(data.uf, 300, cartItems);
-        setShippingOptionsList(calculation.options);
-        setShippingDetailsInfo(calculation);
-        if (calculation.options.length > 0) {
-          setSelectedShipping(calculation.options[0]);
-        }
-        return data;
       }
+      setAddressData(data);
+      return data;
     } catch (err) {
-      setCepError('Erro ao consultar CEP. Tente novamente.');
+      console.error('Erro na consulta do CEP:', err);
+      setCepError('Não foi possível carregar o endereço automaticamente. Digite o CEP novamente.');
       return null;
     } finally {
       setLoadingCep(false);
@@ -459,14 +479,9 @@ export default function CheckoutPage({
       return [];
     }
   });
-  // Generate valid RFC4122 v4 UUID
+  // Unique session identifier for the order / checkout lead
   const generateValidUUID = () => {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-      try {
-        return crypto.randomUUID();
-      } catch (e) {}
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
       const r = Math.random() * 16 | 0;
       const v = c === 'x' ? r : (r & 0x3 | 0x8);
       return v.toString(16);
@@ -475,27 +490,65 @@ export default function CheckoutPage({
 
   const activeOrderIdRef = useRef(generateValidUUID());
 
-  // Save Lead Helper Function (Triggers on Step 1, Step 2, and Order Place)
-  const saveLeadData = (stage = 'etapa_1_contato', customStatus = null) => {
+  // Save Lead Helper Function (Triggers in real-time as user types, Step 1, Step 2, and Order Place)
+  const saveLeadData = async (stage = 'etapa_1_contato', customStatus = null) => {
     if (!email.trim() && !phone.trim()) return null;
 
     if (!activeOrderIdRef.current || !activeOrderIdRef.current.includes('-')) {
       activeOrderIdRef.current = generateValidUUID();
     }
 
-    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
-    const customerName = fullName || (email.trim() ? email.trim().split('@')[0] : '') || phone.trim() || 'Cliente em Checkout';
-    const customerEmail = email.trim() || 'sem-email@cliente.com';
+    const rawFullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+    let customerName = rawFullName;
+    if (!customerName && email.trim()) {
+      const userPart = email.trim().split('@')[0];
+      customerName = userPart.replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    if (!customerName && phone.trim()) {
+      customerName = `Cliente (${phone.trim()})`;
+    }
+    if (!customerName) {
+      customerName = 'Cliente em Checkout';
+    }
+
+    const customerEmail = email.trim() || null;
+    const customerPhone = phone.trim() || null;
+    const customerCpf = cpf.trim() || null;
+    const cleanCepVal = cep.trim() || null;
+    const cleanNumber = streetNumber.trim() || (noNumber ? 'S/N' : '');
+    const cleanComplement = complement.trim();
+
+    const streetAddress = addressData ? (addressData.logradouro || '') : '';
+    const neighborhoodAddress = addressData ? (addressData.bairro || '') : '';
+    const cityAddress = addressData ? (addressData.localidade || '') : '';
+    const stateAddress = addressData ? (addressData.uf || '') : '';
 
     const itemsSummary = cartItems.map(item => `${item.title || item.name} (${item.selectedSize}) x${item.quantity}`).join(' | ');
-    const addressStr = addressData ? `${addressData.logradouro || ''}, ${addressData.bairro || ''} - ${addressData.localidade || ''}/${addressData.uf || ''}` : '';
+    const addressStr = addressData ? `${streetAddress}, ${cleanNumber || 'S/N'}${cleanComplement ? ' (' + cleanComplement + ')' : ''} - ${neighborhoodAddress} - ${cityAddress}/${stateAddress}` : '';
     
     let status = customStatus;
     if (!status) {
       if (stage === 'etapa_1_contato') status = 'CARRINHO ABANDONADO (Etapa 1 - Contato)';
       else if (stage === 'etapa_2_entrega') status = 'CARRINHO ABANDONADO (Etapa 2 - Endereço)';
       else if (stage === 'pedido_concluido') status = 'PEDIDO CONCLUÍDO';
+      else status = 'abandoned';
     }
+
+    const shippingAddressObj = {
+      cep: cleanCepVal,
+      street: streetAddress,
+      logradouro: streetAddress,
+      number: cleanNumber,
+      numero: cleanNumber,
+      complement: cleanComplement,
+      complemento: cleanComplement,
+      neighborhood: neighborhoodAddress,
+      bairro: neighborhoodAddress,
+      city: cityAddress,
+      localidade: cityAddress,
+      state: stateAddress,
+      uf: stateAddress
+    };
 
     const leadPayload = {
       id: activeOrderIdRef.current,
@@ -503,14 +556,17 @@ export default function CheckoutPage({
       dataHora: new Date().toLocaleString('pt-BR'),
       etapa: stage,
       status: status,
-      email: customerEmail,
-      whatsapp: phone.trim(),
+      email: customerEmail || 'sem-email@cliente.com',
+      whatsapp: customerPhone || '',
+      phone: customerPhone || '',
       nome: customerName,
-      cpf: cpf.trim(),
-      cep: cep.trim(),
+      name: customerName,
+      cpf: customerCpf || '',
+      cep: cleanCepVal || '',
       endereco: addressStr,
-      numero: streetNumber.trim(),
-      complemento: complement.trim(),
+      numero: cleanNumber,
+      complemento: cleanComplement,
+      shipping_address: shippingAddressObj,
       itens: itemsSummary,
       subtotal: subtotal.toFixed(2),
       frete: shippingCost.toFixed(2),
@@ -530,7 +586,7 @@ export default function CheckoutPage({
       localStorage.setItem('infinity_last_captured_lead', JSON.stringify(leadPayload));
       setCapturedLeads(existing);
     } catch (e) {
-      console.error('Erro ao salvar lead:', e);
+      console.error('Erro ao salvar lead local:', e);
     }
 
     // Send/Update Supabase Orders Table (Checkouts & Abandoned Checkouts)
@@ -540,13 +596,13 @@ export default function CheckoutPage({
 
       const orderRecord = {
         id: activeOrderIdRef.current,
-        customer_name: leadPayload.name || 'Cliente em Checkout',
-        customer_email: leadPayload.email || null,
-        customer_phone: leadPayload.phone || null,
-        customer_cpf: leadPayload.cpf || null,
-        shipping_address: leadPayload.address || null,
-        shipping_method: leadPayload.shippingMethod || 'Padrão',
-        shipping_cost: leadPayload.shippingCost || 0,
+        customer_name: customerName,
+        customer_email: customerEmail,
+        customer_phone: customerPhone,
+        customer_cpf: customerCpf,
+        shipping_address: shippingAddressObj,
+        shipping_method: selectedShipping ? selectedShipping.name : 'Padrão',
+        shipping_cost: shippingCost || 0,
         items: cartItems.map(i => ({
           name: i.title || i.name,
           price: i.price,
@@ -555,7 +611,7 @@ export default function CheckoutPage({
           image: i.image || (i.images && i.images[0]) || ''
         })),
         total_amount: grandTotal || 0,
-        payment_method: paymentMethod || 'pix',
+        payment_method: paymentMethod || 'infinitepay',
         status: 'abandoned',
         status_entrega: 'imprimindo',
         comments: taggedComments,
@@ -563,26 +619,30 @@ export default function CheckoutPage({
         updated_at: new Date().toISOString()
       };
 
-      supabase
+      // Backup do pedido completo no localStorage
+      try {
+        localStorage.setItem('infinity_last_order_data', JSON.stringify(orderRecord));
+      } catch (e) {}
+
+      const { error } = await supabase
         .from('orders')
-        .upsert([orderRecord], { onConflict: 'id' })
-        .then(({ error }) => {
-          if (error && error.message && error.message.includes('status_entrega')) {
-            const fallbackRecord = { ...orderRecord };
-            delete fallbackRecord.status_entrega;
-            supabase.from('orders').upsert([fallbackRecord], { onConflict: 'id' }).then(() => {});
-          } else if (error) {
-            console.error('Erro ao registrar/atualizar checkout no Supabase:', error.message);
-          } else {
-            console.log('✅ Checkout gravado/atualizado no Supabase (ID:', activeOrderIdRef.current, ')');
-          }
-        });
+        .upsert([orderRecord], { onConflict: 'id' });
+
+      if (error && error.message && error.message.includes('status_entrega')) {
+        const fallbackRecord = { ...orderRecord };
+        delete fallbackRecord.status_entrega;
+        await supabase.from('orders').upsert([fallbackRecord], { onConflict: 'id' });
+      }
+
+      // Notifica abas do painel admin instantaneamente
+      try {
+        const bc = new BroadcastChannel('infinity-orders-channel');
+        bc.postMessage({ type: 'order_updated', id: activeOrderIdRef.current });
+        bc.close();
+      } catch (e) {}
     } catch (err) {
       console.error('Erro de integração Supabase:', err);
     }
-
-    setLeadNotice(`⚡ Lead capturado com sucesso! (Etapa ${stage === 'etapa_1_contato' ? '1: Contato & WhatsApp' : stage === 'etapa_2_entrega' ? '2: Endereço' : '3: Concluído'})`);
-    setTimeout(() => setLeadNotice(null), 4000);
 
     return leadPayload;
   };
@@ -684,7 +744,7 @@ export default function CheckoutPage({
     }
 
     try {
-      saveLeadData('etapa_1_contato', 'CARRINHO ABANDONADO (Etapa 1 - E-mail & WhatsApp Capturados)');
+      await saveLeadData('etapa_1_contato', 'CARRINHO ABANDONADO (Etapa 1 - E-mail & WhatsApp Capturados)');
     } catch (err) {
       console.error('Erro ao salvar lead:', err);
     }
@@ -727,7 +787,7 @@ export default function CheckoutPage({
 
     if (Object.keys(errors).length === 0) {
       try {
-        saveLeadData('etapa_2_entrega', 'ENTREGA & DESTINATÁRIO');
+        await saveLeadData('etapa_2_entrega', 'ENTREGA & DESTINATÁRIO');
       } catch (err) {
         console.warn('Lead notice:', err);
       }
@@ -765,7 +825,7 @@ export default function CheckoutPage({
 
     try {
       try {
-        saveLeadData('etapa_2_entrega', 'CARRINHO ABANDONADO (Aguardando Pagamento InfinitePay)');
+        await saveLeadData('etapa_2_entrega', 'CARRINHO ABANDONADO (Aguardando Pagamento InfinitePay)');
       } catch (leadErr) {
         console.warn('Lead notice:', leadErr);
       }

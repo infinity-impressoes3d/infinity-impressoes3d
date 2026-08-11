@@ -120,6 +120,29 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
         let calculatedDisplayNum = '30';
 
         if (activeOrder) {
+          // Auto-recuperação e integridade do endereço de entrega
+          if (!activeOrder.shipping_address || Object.keys(activeOrder.shipping_address).length === 0) {
+            try {
+              const lastOrderBackup = JSON.parse(localStorage.getItem('infinity_last_order_data') || 'null');
+              const lastLeadBackup = JSON.parse(localStorage.getItem('infinity_last_captured_lead') || 'null');
+              const backupAddr = lastOrderBackup?.shipping_address || lastLeadBackup?.shipping_address;
+
+              if (backupAddr && Object.keys(backupAddr).length > 0) {
+                activeOrder.shipping_address = backupAddr;
+                await supabase
+                  .from('orders')
+                  .update({ 
+                    shipping_address: backupAddr,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', activeOrder.id);
+                console.log('✅ Endereço recuperado do backup seguro e sincronizado no Supabase');
+              }
+            } catch (backupErr) {
+              console.warn('Aviso sincronização de backup:', backupErr);
+            }
+          }
+
           setOrder(activeOrder);
 
           try {
@@ -358,9 +381,15 @@ export default function SuccessPage({ onGoHome, onClearCart }) {
                 <div>
                   <span style={{ color: '#ffffff', fontWeight: '700', display: 'block', marginBottom: '4px' }}>Endereço de Entrega:</span>
                   <span>
-                    {shippingAddr.street ? `${shippingAddr.street}, ${shippingAddr.number || 'S/N'}` : 'Endereço cadastrado'}
+                    {(shippingAddr.street || shippingAddr.logradouro) 
+                      ? `${shippingAddr.street || shippingAddr.logradouro}, ${shippingAddr.number || shippingAddr.numero || 'S/N'}${shippingAddr.complement || shippingAddr.complemento ? ' (' + (shippingAddr.complement || shippingAddr.complemento) + ')' : ''}` 
+                      : 'Endereço cadastrado'}
                   </span><br />
-                  <span>{shippingAddr.neighborhood} - {shippingAddr.city}/{shippingAddr.state} (CEP: {shippingAddr.cep})</span>
+                  <span>
+                    {shippingAddr.neighborhood || shippingAddr.bairro || ''}
+                    {(shippingAddr.city || shippingAddr.localidade) ? ` - ${shippingAddr.city || shippingAddr.localidade}/${shippingAddr.state || shippingAddr.uf || ''}` : ''}
+                    {shippingAddr.cep ? ` (CEP: ${shippingAddr.cep})` : ''}
+                  </span>
                 </div>
               </div>
 
