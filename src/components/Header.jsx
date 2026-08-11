@@ -9,6 +9,7 @@ export default function Header({
   onGoHome,
   onSelectProduct,
   onSelectCategory,
+  onOpenOrderStatus,
   products = [],
   categories = []
 }) {
@@ -308,6 +309,41 @@ export default function Header({
               </div>
             )}
           </div>
+
+          {/* 4. ACOMPANHAR MEU PEDIDO Link */}
+          <a
+            href="#/meu-pedido"
+            onClick={(e) => {
+              e.preventDefault();
+              if (onOpenOrderStatus) onOpenOrderStatus();
+            }}
+            style={{
+              fontSize: '13px',
+              fontWeight: '800',
+              letterSpacing: '1.2px',
+              color: '#ffffff',
+              textDecoration: 'none',
+              textTransform: 'uppercase',
+              transition: 'color 0.2s ease',
+              padding: '10px 4px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.color = '#3498db';
+              const svg = e.currentTarget.querySelector('svg');
+              if (svg) svg.style.color = '#3498db';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.color = '#ffffff';
+              const svg = e.currentTarget.querySelector('svg');
+              if (svg) svg.style.color = '#ffffff';
+            }}
+          >
+            <Package size={15} />
+            ACOMPANHAR MEU PEDIDO
+          </a>
         </nav>
 
         {/* Right Side: Search Icon (Lupa) + Carrinho Button */}
@@ -638,7 +674,33 @@ export default function Header({
               )}
             </div>
 
-            {/* 4. ATENDIMENTO WHATSAPP */}
+            {/* 4. ACOMPANHAR MEU PEDIDO (Mobile Link) */}
+            <div
+              onClick={() => {
+                setMobileMenuOpen(false);
+                if (onOpenOrderStatus) onOpenOrderStatus();
+              }}
+              style={{
+                padding: '18px 20px',
+                borderBottom: '1px solid #141414',
+                fontSize: '14px',
+                fontWeight: '800',
+                letterSpacing: '1px',
+                color: '#ffffff',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Package size={18} color="#ffffff" />
+                <span>ACOMPANHAR MEU PEDIDO</span>
+              </div>
+              <ArrowRight size={18} color="#ffffff" />
+            </div>
+
+            {/* 5. ATENDIMENTO WHATSAPP */}
             <a
               href="https://api.whatsapp.com/send?phone=5534988388278"
               target="_blank"

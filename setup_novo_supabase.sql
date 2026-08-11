@@ -63,10 +63,15 @@ CREATE TABLE IF NOT EXISTS public.orders (
   total_amount NUMERIC(10, 2),
   payment_method TEXT,
   status TEXT DEFAULT 'abandoned',
+  status_entrega TEXT DEFAULT 'imprimindo',
+  status_atualizado_em TIMESTAMPTZ DEFAULT NOW(),
   comments TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS status_entrega TEXT DEFAULT 'imprimindo';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS status_atualizado_em TIMESTAMPTZ DEFAULT NOW();
 
 -- 6. TABELA DE CONFIGURAÇÕES DA LOJA
 CREATE TABLE IF NOT EXISTS public.store_settings (

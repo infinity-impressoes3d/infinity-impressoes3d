@@ -12,6 +12,7 @@ import Footer from './components/Footer';
 import CollectionPage from './components/CollectionPage';
 import CheckoutPage from './components/CheckoutPage';
 import SuccessPage from './components/SuccessPage';
+import OrderStatusPage from './components/OrderStatusPage';
 
 export default function App() {
   const [productsList, setProductsList] = useState(PRODUCTS);
@@ -208,6 +209,10 @@ export default function App() {
         setCurrentView('success');
         return;
       }
+      if (hash === '#/meu-pedido' || hash === '#meu-pedido' || hash === '#/status-pedido' || hash === '#status-pedido') {
+        setCurrentView('order-status');
+        return;
+      }
       if (!hash || hash === '#' || hash === '#products') {
         setCurrentView('home');
       }
@@ -320,6 +325,12 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleOpenOrderStatus = () => {
+    setCurrentView('order-status');
+    window.location.hash = '#/meu-pedido';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#000000', color: '#ffffff' }}>
       {/* Header Navigation */}
@@ -330,6 +341,7 @@ export default function App() {
         onGoHome={handleGoHome}
         onSelectCategory={handleSelectCategory}
         onSelectProduct={handleSelectProduct}
+        onOpenOrderStatus={handleOpenOrderStatus}
         products={productsList}
         categories={collectionsList}
       />
@@ -391,10 +403,19 @@ export default function App() {
             onClearCart={handleClearCartAndDraft}
           />
         )}
+
+        {currentView === 'order-status' && (
+          <OrderStatusPage
+            onGoHome={handleGoHome}
+          />
+        )}
       </main>
 
       {/* Footer */}
-      <Footer onSelectCategory={handleSelectCategory} />
+      <Footer
+        onSelectCategory={handleSelectCategory}
+        onOpenOrderStatus={handleOpenOrderStatus}
+      />
 
       {/* Cart Drawer */}
       <CartDrawer

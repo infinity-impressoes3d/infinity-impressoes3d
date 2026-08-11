@@ -1,7 +1,7 @@
 import React from 'react';
 import { Instagram, MessageCircle } from 'lucide-react';
 
-export default function Footer({ customContent }) {
+export default function Footer({ customContent, onOpenOrderStatus }) {
   const instagramUrl = "https://www.instagram.com/infi.nityimpressoes3d/";
   const whatsappUrl = "https://api.whatsapp.com/send?phone=5534988388278";
 
@@ -117,12 +117,24 @@ export default function Footer({ customContent }) {
                 </div>
               </div>
 
-              {/* Col 2: Coleções */}
+              {/* Col 2: Central do Cliente */}
               <div>
                 <h4 style={{ fontSize: '14px', fontWeight: '800', color: '#ffffff', marginBottom: '16px', letterSpacing: '1px' }}>
-                  COLEÇÕES
+                  CENTRAL DO CLIENTE
                 </h4>
                 <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '12px', color: '#888888' }}>
+                  <li>
+                    <a
+                      href="#/meu-pedido"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (onOpenOrderStatus) onOpenOrderStatus();
+                      }}
+                      style={{ color: '#3498db', fontWeight: '700', textDecoration: 'none' }}
+                    >
+                      📦 Acompanhar Status do Pedido
+                    </a>
+                  </li>
                   <li><a href="#/colecao/porta-monster" style={{ color: '#888888', textDecoration: 'none' }}>Porta Monster</a></li>
                   <li><a href="#/colecao/porta-chaveiro" style={{ color: '#888888', textDecoration: 'none' }}>Porta Chaveiro</a></li>
                   <li><a href="#/colecao/miniaturas" style={{ color: '#888888', textDecoration: 'none' }}>Miniaturas</a></li>

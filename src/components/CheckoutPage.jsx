@@ -535,23 +535,18 @@ export default function CheckoutPage({
 
     // Send/Update Supabase Orders Table (Checkouts & Abandoned Checkouts)
     try {
+      const baseComments = comments ? comments.trim() : '';
+      const taggedComments = baseComments ? `${baseComments}\n<!--DELIVERY:imprimindo-->` : '<!--DELIVERY:imprimindo-->';
+
       const orderRecord = {
         id: activeOrderIdRef.current,
-        customer_name: customerName,
-        customer_email: customerEmail,
-        customer_phone: phone.trim() || null,
-        customer_cpf: cpf.trim() || null,
-        shipping_address: {
-          cep: cep.trim(),
-          street: addressData ? (addressData.logradouro || '') : '',
-          number: streetNumber.trim() || (noNumber ? 'S/N' : ''),
-          complement: complement.trim() || '',
-          neighborhood: addressData ? (addressData.bairro || '') : '',
-          city: addressData ? (addressData.localidade || '') : '',
-          state: addressData ? (addressData.uf || '') : ''
-        },
-        shipping_method: selectedShipping ? selectedShipping.name : 'Correios SEDEX',
-        shipping_cost: shippingCost || 0,
+        customer_name: leadPayload.name || 'Cliente em Checkout',
+        customer_email: leadPayload.email || null,
+        customer_phone: leadPayload.phone || null,
+        customer_cpf: leadPayload.cpf || null,
+        shipping_address: leadPayload.address || null,
+        shipping_method: leadPayload.shippingMethod || 'Padrão',
+        shipping_cost: leadPayload.shippingCost || 0,
         items: cartItems.map(i => ({
           name: i.title || i.name,
           price: i.price,
@@ -562,7 +557,8 @@ export default function CheckoutPage({
         total_amount: grandTotal || 0,
         payment_method: paymentMethod || 'pix',
         status: 'abandoned',
-        comments: comments ? comments.trim() : null,
+        status_entrega: 'imprimindo',
+        comments: taggedComments,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -571,8 +567,15 @@ export default function CheckoutPage({
         .from('orders')
         .upsert([orderRecord], { onConflict: 'id' })
         .then(({ error }) => {
-          if (error) console.error('Erro ao registrar/atualizar checkout no Supabase:', error.message);
-          else console.log('✅ Checkout gravado/atualizado no Supabase (ID:', activeOrderIdRef.current, ')');
+          if (error && error.message && error.message.includes('status_entrega')) {
+            const fallbackRecord = { ...orderRecord };
+            delete fallbackRecord.status_entrega;
+            supabase.from('orders').upsert([fallbackRecord], { onConflict: 'id' }).then(() => {});
+          } else if (error) {
+            console.error('Erro ao registrar/atualizar checkout no Supabase:', error.message);
+          } else {
+            console.log('✅ Checkout gravado/atualizado no Supabase (ID:', activeOrderIdRef.current, ')');
+          }
         });
     } catch (err) {
       console.error('Erro de integração Supabase:', err);
