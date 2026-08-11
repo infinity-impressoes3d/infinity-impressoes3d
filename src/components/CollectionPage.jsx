@@ -73,10 +73,13 @@ export default function CollectionPage({
     });
 
     return [...list].sort((a, b) => {
+      if (sortBy === 'relevancia') {
+        return (Boolean(b.isPinned) ? 1 : 0) - (Boolean(a.isPinned) ? 1 : 0);
+      }
       if (sortBy === 'menor-preco') return a.price - b.price;
       if (sortBy === 'maior-preco') return b.price - a.price;
       if (sortBy === 'nome') return a.name.localeCompare(b.name);
-      return 0; // relevancia
+      return 0;
     });
   }, [baseCategoryProducts, appliedPriceRange, sortBy]);
 

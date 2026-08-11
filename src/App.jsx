@@ -78,11 +78,14 @@ export default function App() {
             const relCols = prodRels ? prodRels.filter(r => r.product_id === p.id).map(r => r.collection_id) : [];
             const allColIds = Array.from(new Set([...relCols, ...(p.collection_id ? [p.collection_id] : [])]));
 
+            const isPinned = Boolean(p.is_pinned || p.isPinned || (p.description && p.description.includes('<!--PINNED-->')));
+            const cleanDescription = (p.description || '').replace(/<!--PINNED-->/g, '').trim();
+
             return {
               id: p.id,
               name: p.name,
               title: p.name,
-              description: p.description,
+              description: cleanDescription,
               price: Number(p.price || 0),
               oldPrice: p.old_price ? Number(p.old_price) : (p.oldPrice ? Number(p.oldPrice) : (Number(p.price || 0) > 0 ? Number(p.price) * 1.2 : null)),
               weightGrams: p.weight_grams,
@@ -94,7 +97,7 @@ export default function App() {
               rating: 5.0,
               reviewsCount: 12,
               isNew: true,
-              isPinned: Boolean(p.is_pinned)
+              isPinned: isPinned
             };
           });
 
