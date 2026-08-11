@@ -141,10 +141,11 @@ export default function ProductCard({ product, onAddToCart, onSelectProduct }) {
 
         {/* Installment Info */}
         <div style={{
-          fontSize: '11px',
-          color: '#aaaaaa'
+          fontSize: '10px',
+          color: '#aaaaaa',
+          lineHeight: '1.3'
         }}>
-          {product.installments || `10 x de R$ ${formatPrice(priceNum / 10)}`}
+          Parcelamentos podem incluir acréscimos conforme o número de parcelas escolhido
         </div>
 
         {/* COMPRAR Button -> Opens Product Detail Page */}

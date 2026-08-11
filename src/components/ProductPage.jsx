@@ -12,7 +12,6 @@ import {
   Share2,
   Heart
 } from 'lucide-react';
-import PaymentDetailsModal from './PaymentDetailsModal';
 import ProductCard from './ProductCard';
 import ShippingCalculator from './ShippingCalculator';
 import { formatPrice, handleImageError, renderFormattedDescription, DEFAULT_FALLBACK_IMAGE } from '../lib/formatters';
@@ -23,7 +22,6 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
   const [selectedColor, setSelectedColor] = useState(product?.colors?.[0] || { name: 'Padrão' });
   const [quantity, setQuantity] = useState(1);
   const [addedSuccess, setAddedSuccess] = useState(false);
-  const [isPaymentDetailsOpen, setIsPaymentDetailsOpen] = useState(false);
 
   // Shipping Calculator state
   const [cepInput, setCepInput] = useState('');
@@ -291,23 +289,9 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
                 </div>
               )}
 
-              {/* Installments & Details button */}
-              <div style={{ fontSize: '12px', color: '#aaaaaa', marginTop: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>{product.installments || `10 x de R$ ${formatPrice(Number(product.price) / 10)}`}</span>
-                <button
-                  onClick={() => setIsPaymentDetailsOpen(true)}
-                  style={{
-                    color: '#3498db',
-                    fontSize: '11px',
-                    fontWeight: '700',
-                    textDecoration: 'underline',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <CreditCard size={14} /> Ver mais detalhes
-                </button>
+              {/* Installment Notice */}
+              <div style={{ fontSize: '11px', color: '#aaaaaa', marginTop: '6px', lineHeight: '1.4' }}>
+                Parcelamentos podem incluir acréscimos conforme o número de parcelas escolhido
               </div>
             </div>
 
@@ -547,8 +531,7 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
 
       </div>
 
-      {/* Helper Modals */}
-      <PaymentDetailsModal isOpen={isPaymentDetailsOpen} onClose={() => setIsPaymentDetailsOpen(false)} price={product.price} />
+
 
       {/* CSS adjustments for desktop responsive layout */}
       <style>{`
