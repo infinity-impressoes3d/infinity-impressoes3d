@@ -508,50 +508,66 @@ export default function CheckoutPage({
 
   // Save Lead Helper Function (Triggers in real-time as user types, Step 1, Step 2, and Order Place)
   const saveLeadData = async (stage = 'etapa_1_contato', customStatus = null, overrides = {}) => {
-    const currentEmail = overrides.email !== undefined ? overrides.email : email;
-    const currentPhone = overrides.phone !== undefined ? overrides.phone : phone;
-    const currentFirstName = overrides.firstName !== undefined ? overrides.firstName : firstName;
-    const currentLastName = overrides.lastName !== undefined ? overrides.lastName : lastName;
-    const currentCpf = overrides.cpf !== undefined ? overrides.cpf : cpf;
-    const currentCep = overrides.cep !== undefined ? overrides.cep : cep;
-    const currentStreetNumber = overrides.streetNumber !== undefined ? overrides.streetNumber : streetNumber;
-    const currentComplement = overrides.complement !== undefined ? overrides.complement : complement;
-    const currentAddressData = overrides.addressData !== undefined ? overrides.addressData : addressData;
-    const currentNoNumber = overrides.noNumber !== undefined ? overrides.noNumber : noNumber;
+    const savedEmail = overrides.email !== undefined ? overrides.email : email;
+    let currentEmail = savedEmail;
+    let currentPhoneVal = overrides.phone !== undefined ? overrides.phone : phone;
+    let currentFirstNameVal = overrides.firstName !== undefined ? overrides.firstName : firstName;
+    let currentLastNameVal = overrides.lastName !== undefined ? overrides.lastName : lastName;
+    let currentCpfVal = overrides.cpf !== undefined ? overrides.cpf : cpf;
+    let currentCepVal = overrides.cep !== undefined ? overrides.cep : cep;
+    let currentStreetNumberVal = overrides.streetNumber !== undefined ? overrides.streetNumber : streetNumber;
+    let currentComplementVal = overrides.complement !== undefined ? overrides.complement : complement;
+    let currentAddressDataVal = overrides.addressData !== undefined ? overrides.addressData : addressData;
+    let currentNoNumberVal = overrides.noNumber !== undefined ? overrides.noNumber : noNumber;
 
-    if (!currentEmail.trim() && !currentPhone.trim()) return null;
+    // Resgata do draft caso algum campo esteja temporariamente vazio no escopo
+    try {
+      const draft = JSON.parse(localStorage.getItem('infinity_checkout_draft') || '{}');
+      if (!currentEmail && draft.email) currentEmail = draft.email;
+      if (!currentPhoneVal && draft.phone) currentPhoneVal = draft.phone;
+      if (!currentFirstNameVal && draft.firstName) currentFirstNameVal = draft.firstName;
+      if (!currentLastNameVal && draft.lastName) currentLastNameVal = draft.lastName;
+      if (!currentCpfVal && draft.cpf) currentCpfVal = draft.cpf;
+      if (!currentCepVal && draft.cep) currentCepVal = draft.cep;
+      if (!currentStreetNumberVal && draft.streetNumber) currentStreetNumberVal = draft.streetNumber;
+      if (!currentComplementVal && draft.complement) currentComplementVal = draft.complement;
+      if (!currentAddressDataVal && draft.addressData) currentAddressDataVal = draft.addressData;
+      if (currentNoNumberVal === undefined && draft.noNumber !== undefined) currentNoNumberVal = draft.noNumber;
+    } catch (e) {}
+
+    if (!currentEmail?.trim() && !currentPhoneVal?.trim()) return null;
 
     if (!activeOrderIdRef.current || !activeOrderIdRef.current.includes('-')) {
       activeOrderIdRef.current = generateValidUUID();
     }
 
-    const rawFullName = `${currentFirstName.trim()} ${currentLastName.trim()}`.trim();
+    const rawFullName = `${(currentFirstNameVal || '').trim()} ${(currentLastNameVal || '').trim()}`.trim();
     let customerName = rawFullName;
-    if (!customerName && currentEmail.trim()) {
+    if (!customerName && currentEmail?.trim()) {
       const userPart = currentEmail.trim().split('@')[0];
       customerName = userPart.replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }
-    if (!customerName && currentPhone.trim()) {
-      customerName = `Cliente (${currentPhone.trim()})`;
+    if (!customerName && currentPhoneVal?.trim()) {
+      customerName = `Cliente (${currentPhoneVal.trim()})`;
     }
     if (!customerName) {
       customerName = 'Cliente em Checkout';
     }
 
-    const customerEmail = currentEmail.trim() || null;
-    const customerPhone = currentPhone.trim() || null;
-    const customerCpf = currentCpf.trim() || null;
-    const cleanCepVal = currentCep.trim() || null;
-    const cleanNumber = currentStreetNumber.trim() || (currentNoNumber ? 'S/N' : '');
-    const cleanComplement = currentComplement.trim();
+    const customerEmail = currentEmail?.trim() || null;
+    const customerPhone = currentPhoneVal?.trim() || null;
+    const customerCpf = currentCpfVal?.trim() || null;
+    const cleanCepVal = currentCepVal ? currentCepVal.trim() : (currentAddressDataVal?.cep || null);
+    const cleanNumber = currentStreetNumberVal ? currentStreetNumberVal.trim() : (currentNoNumberVal ? 'S/N' : '');
+    const cleanComplement = currentComplementVal ? currentComplementVal.trim() : '';
 
-    const streetAddress = currentAddressData ? (currentAddressData.logradouro || '') : '';
-    const neighborhoodAddress = currentAddressData ? (currentAddressData.bairro || '') : '';
-    const cityAddress = currentAddressData ? (currentAddressData.localidade || '') : '';
-    const stateAddress = currentAddressData ? (currentAddressData.uf || '') : '';
+    const streetAddress = currentAddressDataVal ? (currentAddressDataVal.logradouro || currentAddressDataVal.street || currentAddressDataVal.address || '') : '';
+    const neighborhoodAddress = currentAddressDataVal ? (currentAddressDataVal.bairro || currentAddressDataVal.neighborhood || '') : '';
+    const cityAddress = currentAddressDataVal ? (currentAddressDataVal.localidade || currentAddressDataVal.city || '') : '';
+    const stateAddress = currentAddressDataVal ? (currentAddressDataVal.uf || currentAddressDataVal.state || '') : '';
 
     const itemsSummary = cartItems.map(item => `${item.title || item.name} (${item.selectedSize}) x${item.quantity}`).join(' | ');
-    const addressStr = currentAddressData ? `${streetAddress}, ${cleanNumber || 'S/N'}${cleanComplement ? ' (' + cleanComplement + ')' : ''} - ${neighborhoodAddress} - ${cityAddress}/${stateAddress}` : '';
+    const addressStr = currentAddressDataVal ? `${streetAddress}, ${cleanNumber || 'S/N'}${cleanComplement ? ' (' + cleanComplement + ')' : ''} - ${neighborhoodAddress} - ${cityAddress}/${stateAddress}` : '';
     
     let status = customStatus;
     if (!status) {
@@ -562,7 +578,7 @@ export default function CheckoutPage({
     }
 
     const shippingAddressObj = {
-      cep: cleanCepVal,
+      cep: cleanCepVal || '',
       street: streetAddress,
       logradouro: streetAddress,
       number: cleanNumber,
@@ -1128,7 +1144,7 @@ export default function CheckoutPage({
     setStep2Errors(prev => ({ ...prev, cpf: null }));
   };
 
-  // Format Phone mask with strict 9th digit enforcement
+  // Format Phone mask with dynamic mask and real-time validation
   const handlePhoneChange = (e) => {
     let v = e.target.value.replace(/\D/g, '');
     if (v.length > 11) v = v.slice(0, 11);
@@ -1143,6 +1159,7 @@ export default function CheckoutPage({
     }
 
     setPhone(formatted);
+    setStep1Error('');
 
     // Instant real-time 9th-digit check after DDD
     if (v.length >= 3 && v.charAt(2) !== '9') {
