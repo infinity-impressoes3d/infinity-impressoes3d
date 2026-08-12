@@ -461,6 +461,9 @@ export default function CheckoutPage({
         return null;
       }
       setAddressData(data);
+      if (email.trim() || phone.trim()) {
+        saveLeadData(step === 1 ? 'etapa_1_contato' : 'etapa_2_entrega', null, { addressData: data, cep: cleanCep });
+      }
       return data;
     } catch (err) {
       console.error('Erro na consulta do CEP:', err);
@@ -479,6 +482,7 @@ export default function CheckoutPage({
       return [];
     }
   });
+
   // Unique session identifier for the order / checkout lead
   const generateValidUUID = () => {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -488,43 +492,66 @@ export default function CheckoutPage({
     });
   };
 
-  const activeOrderIdRef = useRef(generateValidUUID());
+  const getInitialOrderId = () => {
+    try {
+      const saved = localStorage.getItem('infinity_active_checkout_order_id');
+      if (saved && saved.includes('-')) return saved;
+    } catch (e) {}
+    const newId = generateValidUUID();
+    try {
+      localStorage.setItem('infinity_active_checkout_order_id', newId);
+    } catch (e) {}
+    return newId;
+  };
+
+  const activeOrderIdRef = useRef(getInitialOrderId());
 
   // Save Lead Helper Function (Triggers in real-time as user types, Step 1, Step 2, and Order Place)
-  const saveLeadData = async (stage = 'etapa_1_contato', customStatus = null) => {
-    if (!email.trim() && !phone.trim()) return null;
+  const saveLeadData = async (stage = 'etapa_1_contato', customStatus = null, overrides = {}) => {
+    const currentEmail = overrides.email !== undefined ? overrides.email : email;
+    const currentPhone = overrides.phone !== undefined ? overrides.phone : phone;
+    const currentFirstName = overrides.firstName !== undefined ? overrides.firstName : firstName;
+    const currentLastName = overrides.lastName !== undefined ? overrides.lastName : lastName;
+    const currentCpf = overrides.cpf !== undefined ? overrides.cpf : cpf;
+    const currentCep = overrides.cep !== undefined ? overrides.cep : cep;
+    const currentStreetNumber = overrides.streetNumber !== undefined ? overrides.streetNumber : streetNumber;
+    const currentComplement = overrides.complement !== undefined ? overrides.complement : complement;
+    const currentAddressData = overrides.addressData !== undefined ? overrides.addressData : addressData;
+    const currentNoNumber = overrides.noNumber !== undefined ? overrides.noNumber : noNumber;
+
+    if (!currentEmail.trim() && !currentPhone.trim()) return null;
 
     if (!activeOrderIdRef.current || !activeOrderIdRef.current.includes('-')) {
       activeOrderIdRef.current = generateValidUUID();
     }
 
-    const rawFullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+    const rawFullName = `${currentFirstName.trim()} ${currentLastName.trim()}`.trim();
     let customerName = rawFullName;
-    if (!customerName && email.trim()) {
-      const userPart = email.trim().split('@')[0];
+    if (!customerName && currentEmail.trim()) {
+      const userPart = currentEmail.trim().split('@')[0];
       customerName = userPart.replace(/[._-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }
-    if (!customerName && phone.trim()) {
-      customerName = `Cliente (${phone.trim()})`;
+    if (!customerName && currentPhone.trim()) {
+      customerName = `Cliente (${currentPhone.trim()})`;
     }
     if (!customerName) {
       customerName = 'Cliente em Checkout';
     }
 
-    const customerEmail = email.trim() || null;
-    const customerPhone = phone.trim() || null;
-    const customerCpf = cpf.trim() || null;
-    const cleanCepVal = cep.trim() || null;
-    const cleanNumber = streetNumber.trim() || (noNumber ? 'S/N' : '');
-    const cleanComplement = complement.trim();
+    const customerEmail = currentEmail.trim() || null;
+    const customerPhone = currentPhone.trim() || null;
+    const customerCpf = currentCpf.trim() || null;
+    const cleanCepVal = currentCep.trim() || null;
+    const cleanNumber = currentStreetNumber.trim() || (currentNoNumber ? 'S/N' : '');
+    const cleanComplement = currentComplement.trim();
 
-    const streetAddress = addressData ? (addressData.logradouro || '') : '';
-    const neighborhoodAddress = addressData ? (addressData.bairro || '') : '';
-    const cityAddress = addressData ? (addressData.localidade || '') : '';
-    const stateAddress = addressData ? (addressData.uf || '') : '';
+    const streetAddress = currentAddressData ? (currentAddressData.logradouro || '') : '';
+    const neighborhoodAddress = currentAddressData ? (currentAddressData.bairro || '') : '';
+    const cityAddress = currentAddressData ? (currentAddressData.localidade || '') : '';
+    const stateAddress = currentAddressData ? (currentAddressData.uf || '') : '';
 
     const itemsSummary = cartItems.map(item => `${item.title || item.name} (${item.selectedSize}) x${item.quantity}`).join(' | ');
-    const addressStr = addressData ? `${streetAddress}, ${cleanNumber || 'S/N'}${cleanComplement ? ' (' + cleanComplement + ')' : ''} - ${neighborhoodAddress} - ${cityAddress}/${stateAddress}` : '';
+    const addressStr = currentAddressData ? `${streetAddress}, ${cleanNumber || 'S/N'}${cleanComplement ? ' (' + cleanComplement + ')' : ''} - ${neighborhoodAddress} - ${cityAddress}/${stateAddress}` : '';
     
     let status = customStatus;
     if (!status) {
@@ -744,7 +771,12 @@ export default function CheckoutPage({
     }
 
     try {
-      await saveLeadData('etapa_1_contato', 'CARRINHO ABANDONADO (Etapa 1 - E-mail & WhatsApp Capturados)');
+      await saveLeadData('etapa_1_contato', 'CARRINHO ABANDONADO (Etapa 1 - E-mail & WhatsApp Capturados)', {
+        addressData: currentAddress,
+        cep: cleanCep,
+        phone: cleanPhone,
+        email: email.trim()
+      });
     } catch (err) {
       console.error('Erro ao salvar lead:', err);
     }
