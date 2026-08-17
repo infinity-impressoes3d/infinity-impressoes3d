@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS public.products (
   price NUMERIC(10, 2) NOT NULL,
   old_price NUMERIC(10, 2),
   weight_grams NUMERIC(10, 2) DEFAULT 300,
+  height_cm NUMERIC(10, 2) DEFAULT 6,
+  width_cm NUMERIC(10, 2) DEFAULT 11,
+  length_cm NUMERIC(10, 2) DEFAULT 16,
   sizes JSONB DEFAULT '[]'::jsonb,
   images JSONB DEFAULT '[]'::jsonb,
   collection_id TEXT,
@@ -21,6 +24,9 @@ CREATE TABLE IF NOT EXISTS public.products (
 );
 
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS height_cm NUMERIC(10, 2) DEFAULT 6;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS width_cm NUMERIC(10, 2) DEFAULT 11;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS length_cm NUMERIC(10, 2) DEFAULT 16;
 
 -- 2. TABELA DE COLEÇÕES / CATEGORIAS
 CREATE TABLE IF NOT EXISTS public.collections (

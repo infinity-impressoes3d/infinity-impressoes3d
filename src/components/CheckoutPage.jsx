@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { calculateShippingRates } from '../lib/shippingCalculator';
+import { calculateShippingRates, fetchMelhorEnvioRates } from '../lib/shippingCalculator';
 import {
   ArrowLeft,
   Check,
@@ -21,7 +21,8 @@ import {
   Trash2,
   ExternalLink,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Loader2
 } from 'lucide-react';
 
 // ============================================================================
@@ -432,19 +433,35 @@ export default function CheckoutPage({
 
   const [shippingOptionsList, setShippingOptionsList] = useState([]);
   const [shippingDetailsInfo, setShippingDetailsInfo] = useState(null);
+  const [loadingShippingRates, setLoadingShippingRates] = useState(false);
 
-  // Recalculates shipping options whenever cart items or address changes
+  // Recalculates shipping options whenever cart items or address changes via Melhor Envio (Correios)
   useEffect(() => {
-    if (addressData && addressData.uf) {
-      const calc = calculateShippingRates(addressData.uf, 300, cartItems);
-      setShippingOptionsList(calc.options);
-      setShippingDetailsInfo(calc);
-      if (calc.options.length > 0) {
-        const found = calc.options.find(o => o.id === selectedShipping.id);
-        setSelectedShipping(found || calc.options[0]);
+    let isMounted = true;
+    async function loadRates() {
+      if (addressData && (cep || addressData.cep)) {
+        const cleanCep = String(cep || addressData.cep || '').replace(/\D/g, '');
+        if (cleanCep.length === 8) {
+          setLoadingShippingRates(true);
+          try {
+            const calc = await fetchMelhorEnvioRates(cleanCep, cartItems, addressData.uf || 'SP');
+            if (isMounted && calc && Array.isArray(calc.options) && calc.options.length > 0) {
+              setShippingOptionsList(calc.options);
+              setShippingDetailsInfo(calc);
+              const found = calc.options.find(o => o.id === selectedShipping?.id);
+              setSelectedShipping(found || calc.options[0]);
+            }
+          } catch (err) {
+            console.error('Erro ao consultar Melhor Envio:', err);
+          } finally {
+            if (isMounted) setLoadingShippingRates(false);
+          }
+        }
       }
     }
-  }, [cartItems, addressData]);
+    loadRates();
+    return () => { isMounted = false; };
+  }, [cartItems, addressData, cep]);
 
   // Fetch Address from ViaCEP with timeout and error handling
   const fetchAddressFromViaCep = async (cleanCep) => {
@@ -1684,8 +1701,15 @@ export default function CheckoutPage({
 
                 {/* ENTREGA */}
                 <div style={{ marginBottom: '28px' }}>
-                  <div style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '8px' }}>
-                    ENTREGA
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '12px', color: '#aaaaaa', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                      OPÇÃO DE FRETE (CORREIOS)
+                    </div>
+                    {loadingShippingRates && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db' }}>
+                        <Loader2 size={12} className="animate-spin" /> Cotando frete em tempo real...
+                      </div>
+                    )}
                   </div>
 
                   {(shippingOptionsList.length > 0 ? shippingOptionsList : calculateShippingRates(addressData?.uf || 'SP', 300, cartItems).options).map((opt) => {
@@ -1696,15 +1720,16 @@ export default function CheckoutPage({
                         key={opt.id}
                         onClick={() => setSelectedShipping(opt)}
                         style={{
-                          backgroundColor: '#0a0a0a',
-                          border: isSelected ? '1px solid #ffffff' : '1px solid #222222',
-                          borderRadius: '4px',
+                          backgroundColor: isSelected ? 'rgba(52, 152, 219, 0.08)' : '#0a0a0a',
+                          border: isSelected ? '1px solid #3498db' : '1px solid #222222',
+                          borderRadius: '6px',
                           padding: '14px 16px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
                           cursor: 'pointer',
-                          marginBottom: '8px'
+                          marginBottom: '8px',
+                          transition: 'all 0.2s ease'
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1712,18 +1737,30 @@ export default function CheckoutPage({
                             width: '16px',
                             height: '16px',
                             borderRadius: '50%',
-                            border: isSelected ? '5px solid #ffffff' : '2px solid #555',
-                            backgroundColor: '#000',
+                            border: isSelected ? '5px solid #3498db' : '2px solid #555',
+                            backgroundColor: isSelected ? '#ffffff' : '#000',
                             flexShrink: 0
                           }} />
                           <div>
-                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>
+                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '8px' }}>
                               {opt.name}
+                              {opt.badge && (
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: '800',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: opt.id === 'sedex' ? '#e67e22' : '#27ae60',
+                                  color: '#ffffff'
+                                }}>
+                                  {opt.badge}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
-                        <span style={{ fontSize: '13px', fontWeight: '800', color: '#ffffff' }}>
-                          R$ {opt.price.toFixed(2).replace('.', ',')}
+                        <span style={{ fontSize: '14px', fontWeight: '800', color: isSelected ? '#3498db' : '#ffffff' }}>
+                          R$ {Number(opt.price || 0).toFixed(2).replace('.', ',')}
                         </span>
                       </div>
                     );

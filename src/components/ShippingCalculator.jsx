@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Truck, MapPin, Check, Loader2, Info } from 'lucide-react';
-import { calculateShippingRates } from '../lib/shippingCalculator';
+import { fetchMelhorEnvioRates, calculateShippingRates } from '../lib/shippingCalculator';
 
 export default function ShippingCalculator({
   subtotal = 0,
@@ -54,15 +54,16 @@ export default function ShippingCalculator({
 
       setAddressData(data);
 
-      // 2. Calcula frete com base em PESO TOTAL + DISTÂNCIA (UF)
-      const calculation = calculateShippingRates(data.uf, 300, cartItems);
+      // 2. Consulta cotação oficial do Melhor Envio (Correios PAC e SEDEX)
+      const calculation = await fetchMelhorEnvioRates(cleanCep, cartItems, data.uf);
       setShippingResult(calculation);
 
-      // Seleciona opção mais rápida automaticamente
-      if (onSelectShipping && calculation.options.length > 0) {
+      // Seleciona opção mais rápida ou padrão automaticamente
+      if (onSelectShipping && calculation.options && calculation.options.length > 0) {
         onSelectShipping(calculation.options[0], data);
       }
     } catch (err) {
+      console.error('Erro ao calcular frete:', err);
       setError('Erro ao calcular frete. Tente novamente.');
     } finally {
       setLoading(false);
@@ -78,10 +79,10 @@ export default function ShippingCalculator({
       color: '#ffffff'
     }}>
       {!compact && (
-        <div style={{ display: 'flex', items: 'center', gap: '8px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
           <Truck size={18} color="#3498db" />
           <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Simular Frete por Peso & Distância
+            Calcular Frete dos Correios
           </h3>
         </div>
       )}
@@ -168,8 +169,20 @@ export default function ShippingCalculator({
                     flexShrink: 0
                   }} />
                   <div>
-                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff' }}>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {opt.name}
+                      {opt.badge && (
+                        <span style={{
+                          fontSize: '10px',
+                          fontWeight: '800',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: opt.id === 'sedex' ? '#e67e22' : '#27ae60',
+                          color: '#ffffff'
+                        }}>
+                          {opt.badge}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

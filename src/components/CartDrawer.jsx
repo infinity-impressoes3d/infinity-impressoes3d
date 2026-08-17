@@ -1,22 +1,56 @@
 import React, { useState } from 'react';
-import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight } from 'lucide-react';
+import { X, Trash2, Plus, Minus, ShoppingBag, ArrowRight, Loader2, Truck } from 'lucide-react';
 import { formatPrice, handleImageError, DEFAULT_FALLBACK_IMAGE } from '../lib/formatters';
+import { fetchMelhorEnvioRates } from '../lib/shippingCalculator';
 
 export default function CartDrawer({ isOpen, onClose, cartItems, items, onUpdateQuantity, onRemoveItem, onCheckout, onOpenCheckout }) {
   const handleCheckout = onCheckout || onOpenCheckout;
   const [cep, setCep] = useState('');
-  const [shippingCost, setShippingCost] = useState(null);
+  const [shippingOptions, setShippingOptions] = useState([]);
+  const [selectedShippingOption, setSelectedShippingOption] = useState(null);
+  const [loadingShipping, setLoadingShipping] = useState(false);
+  const [shippingError, setShippingError] = useState('');
 
   const activeCartItems = cartItems || items || [];
 
   if (!isOpen) return null;
 
   const subtotal = activeCartItems.reduce((sum, item) => sum + Number(item.price || 0) * item.quantity, 0);
+  const shippingCost = selectedShippingOption ? selectedShippingOption.price : null;
 
-  const handleCalculateShipping = (e) => {
+  const handleCepChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '').slice(0, 8);
+    if (val.length > 5) {
+      val = `${val.slice(0, 5)}-${val.slice(5)}`;
+    }
+    setCep(val);
+    setShippingError('');
+  };
+
+  const handleCalculateShipping = async (e) => {
     e.preventDefault();
-    if (cep.replace(/\D/g, '').length === 8) {
-      setShippingCost(24.90);
+    const cleanCep = cep.replace(/\D/g, '');
+    if (cleanCep.length !== 8) {
+      setShippingError('Digite um CEP válido com 8 dígitos.');
+      return;
+    }
+
+    setLoadingShipping(true);
+    setShippingError('');
+    try {
+      const res = await fetchMelhorEnvioRates(cleanCep, activeCartItems);
+      if (res && Array.isArray(res.options) && res.options.length > 0) {
+        setShippingOptions(res.options);
+        // Default to the first (usually PAC or lowest cost)
+        setSelectedShippingOption(res.options[0]);
+      } else {
+        setShippingError('Não foi possível cotar o frete para este CEP.');
+      }
+    } catch (err) {
+      console.error('Erro ao calcular frete no carrinho:', err);
+      setShippingError('Erro ao consultar frete. Tente novamente.');
+    } finally {
+      setLoadingShipping(false);
     }
   };
 
@@ -206,12 +240,13 @@ export default function CartDrawer({ isOpen, onClose, cartItems, items, onUpdate
         {cartItems.length > 0 && (
           <div style={{ padding: '20px', borderTop: '1px solid #1a1a1a', backgroundColor: '#080808' }}>
             {/* CEP Calculator */}
-            <form onSubmit={handleCalculateShipping} style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+            <form onSubmit={handleCalculateShipping} style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
               <input
                 type="text"
                 placeholder="Calcular CEP (ex: 01001-000)"
                 value={cep}
-                onChange={(e) => setCep(e.target.value)}
+                onChange={handleCepChange}
+                maxLength={9}
                 style={{
                   flexGrow: 1,
                   backgroundColor: '#141414',
@@ -225,6 +260,7 @@ export default function CartDrawer({ isOpen, onClose, cartItems, items, onUpdate
               />
               <button
                 type="submit"
+                disabled={loadingShipping}
                 style={{
                   backgroundColor: '#14175d',
                   color: '#ffffff',
@@ -233,14 +269,79 @@ export default function CartDrawer({ isOpen, onClose, cartItems, items, onUpdate
                   padding: '0 14px',
                   borderRadius: '6px',
                   border: 'none',
-                  cursor: 'pointer'
+                  cursor: loadingShipping ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}
               >
-                OK
+                {loadingShipping ? <Loader2 size={12} className="animate-spin" /> : 'CALCULAR'}
               </button>
             </form>
 
-            {shippingCost !== null && (
+            {shippingError && (
+              <div style={{ color: '#e74c3c', fontSize: '11px', marginBottom: '10px' }}>
+                {shippingError}
+              </div>
+            )}
+
+            {/* Shipping Options Selector */}
+            {shippingOptions.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
+                {shippingOptions.map((opt) => {
+                  const isSelected = selectedShippingOption?.id === opt.id;
+                  return (
+                    <div
+                      key={opt.id}
+                      onClick={() => setSelectedShippingOption(opt)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 10px',
+                        backgroundColor: isSelected ? 'rgba(52, 152, 219, 0.1)' : '#111111',
+                        border: isSelected ? '1px solid #3498db' : '1px solid #222222',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '50%',
+                          border: isSelected ? '4px solid #3498db' : '2px solid #555',
+                          backgroundColor: '#000'
+                        }} />
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: '700', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {opt.name}
+                            {opt.badge && (
+                              <span style={{
+                                fontSize: '9px',
+                                fontWeight: '800',
+                                padding: '1px 5px',
+                                borderRadius: '3px',
+                                backgroundColor: opt.id === 'sedex' ? '#e67e22' : '#27ae60',
+                                color: '#ffffff'
+                              }}>
+                                {opt.badge}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '12px', fontWeight: '800', color: isSelected ? '#3498db' : '#ffffff' }}>
+                        R$ {formatPrice(opt.price)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {shippingCost !== null && shippingOptions.length === 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#aaaaaa', marginBottom: '10px' }}>
                 <span>Frete Estimado:</span>
                 <span style={{ color: '#ffffff', fontWeight: '700' }}>
