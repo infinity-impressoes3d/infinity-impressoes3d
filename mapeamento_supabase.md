@@ -115,6 +115,21 @@ Usada para obter configurações como a chave pública do Stripe ([src/component
 
 ---
 
+### 3.7. Tabela `finances` (Custos, Despesas e Entradas)
+Usada no módulo financeiro do Painel de Controle para controle de fluxo de caixa e custos operacionais.
+- **Campos utilizados:**
+  - `id` (Text / UUID)
+  - `title` (Text - Nome/Título da movimentação)
+  - `description` / `notes` (Text - Observações ou detalhes)
+  - `type` (Text - `'income'` / `'expense'` ou `'entrada'` / `'saida'`)
+  - `amount` / `value` (Numeric(10,2) - Valor monetário)
+  - `category` (Text - Categoria como 'Filamento / Resina', etc.)
+  - `date` (Text / Date - Data do lançamento)
+  - `created_at` (Timestamp)
+  - `updated_at` (Timestamp)
+
+---
+
 ## 4. ⚡ Edge Functions (Endpoints Serverless)
 
 ### `create-mercadopago-preference`
