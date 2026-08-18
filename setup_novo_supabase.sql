@@ -72,26 +72,55 @@ CREATE TABLE IF NOT EXISTS public.orders (
   status_entrega TEXT DEFAULT 'imprimindo',
   status_atualizado_em TIMESTAMPTZ DEFAULT NOW(),
   comments TEXT,
+  notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS status_entrega TEXT DEFAULT 'imprimindo';
--- 6. TABELA DE CONFIGURAÇÕES DA LOJA
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS status_atualizado_em TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS notes TEXT;
+
+-- 6. TABELA DE CONFIGURAÇÕES DA LOJA E GATEWAYS
 CREATE TABLE IF NOT EXISTS public.store_settings (
   id INT PRIMARY KEY DEFAULT 1,
   stripe_publishable_key TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  stripe_secret_key TEXT,
+  infinitepay_handle TEXT,
+  infinitepay_api_token TEXT,
+  infinitepay_status TEXT,
+  mercadopago_public_key TEXT,
+  mercadopago_access_token TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. TABELA DE FINANÇAS / CUSTOS E ENTRADAS
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS stripe_secret_key TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS infinitepay_handle TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS infinitepay_api_token TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS infinitepay_status TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS mercadopago_public_key TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS mercadopago_access_token TEXT;
+ALTER TABLE public.store_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- 7. TABELA DE CREDENCIAIS DE PAGAMENTO
+CREATE TABLE IF NOT EXISTS public.payment_credentials (
+  id BIGSERIAL PRIMARY KEY,
+  provider TEXT NOT NULL,
+  public_key TEXT,
+  access_token TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. TABELA DE FINANÇAS / CUSTOS, ENTRADAS E DESPESAS
 CREATE TABLE IF NOT EXISTS public.finances (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-  title TEXT,
+  title TEXT NOT NULL,
   description TEXT,
-  type TEXT,
-  amount NUMERIC(10, 2),
-  value NUMERIC(10, 2),
+  type TEXT DEFAULT 'expense',
+  amount NUMERIC(10, 2) DEFAULT 0,
+  value NUMERIC(10, 2) DEFAULT 0,
   category TEXT,
   date TEXT DEFAULT CURRENT_DATE::text,
   notes TEXT,
@@ -108,6 +137,7 @@ ALTER TABLE public.product_collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hero_slides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.finances ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Permitir leitura publica de produtos" ON public.products;
@@ -122,6 +152,7 @@ DROP POLICY IF EXISTS "Permitir acesso total de product_collections" ON public.p
 DROP POLICY IF EXISTS "Permitir acesso total de hero_slides" ON public.hero_slides;
 DROP POLICY IF EXISTS "Permitir acesso total de orders" ON public.orders;
 DROP POLICY IF EXISTS "Permitir acesso total de store_settings" ON public.store_settings;
+DROP POLICY IF EXISTS "Permitir acesso total de payment_credentials" ON public.payment_credentials;
 DROP POLICY IF EXISTS "Permitir acesso total de finances" ON public.finances;
 
 CREATE POLICY "Permitir acesso total de produtos" ON public.products FOR ALL USING (true) WITH CHECK (true);
@@ -130,10 +161,23 @@ CREATE POLICY "Permitir acesso total de product_collections" ON public.product_c
 CREATE POLICY "Permitir acesso total de hero_slides" ON public.hero_slides FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir acesso total de orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir acesso total de store_settings" ON public.store_settings FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir acesso total de payment_credentials" ON public.payment_credentials FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Permitir acesso total de finances" ON public.finances FOR ALL USING (true) WITH CHECK (true);
 
 -- HABILITAR REALTIME
-ALTER PUBLICATION supabase_realtime ADD TABLE public.products, public.collections, public.product_collections, public.hero_slides, public.finances;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.products, public.collections, public.product_collections, public.hero_slides, public.orders, public.finances;
+
+-- ============================================================
+-- STORAGE: BUCKET DE IMAGENS DE PRODUTOS E BANNERS
+-- ============================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('product-images', 'product-images', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Permitir leitura publica em product-images" ON storage.objects;
+DROP POLICY IF EXISTS "Permitir upload publico em product-images" ON storage.objects;
+CREATE POLICY "Permitir leitura publica em product-images" ON storage.objects FOR SELECT USING (bucket_id = 'product-images');
+CREATE POLICY "Permitir upload publico em product-images" ON storage.objects FOR ALL USING (bucket_id = 'product-images') WITH CHECK (bucket_id = 'product-images');
 
 -- ============================================================
 -- DADOS INICIAIS (SEED)

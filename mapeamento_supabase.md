@@ -108,15 +108,34 @@ Usada para registrar e atualizar pedidos no checkout ([src/components/CheckoutPa
 
 ---
 
-### 3.6. Tabela `store_settings` (Configurações da Loja)
-Usada para obter configurações como a chave pública do Stripe ([src/components/CheckoutPage.jsx](file:///c:/Users/Valter/Desktop/Infinity%20impressoes%203d/src/components/CheckoutPage.jsx)).
+### 3.6. Tabela `store_settings` (Configurações da Loja e Gateways)
+Usada para obter e salvar credenciais de integração (Stripe, InfinitePay, Mercado Pago).
 - **Campos utilizados:**
-  - `stripe_publishable_key` (Text - Chave pública do Stripe)
+  - `id` (Int)
+  - `stripe_publishable_key` (Text)
+  - `stripe_secret_key` (Text)
+  - `infinitepay_handle` (Text)
+  - `infinitepay_api_token` (Text)
+  - `infinitepay_status` (Text)
+  - `mercadopago_public_key` (Text)
+  - `mercadopago_access_token` (Text)
 
 ---
 
-### 3.7. Tabela `finances` (Custos, Despesas e Entradas)
-Usada no módulo financeiro do Painel de Controle para controle de fluxo de caixa e custos operacionais.
+### 3.7. Tabela `payment_credentials` (Credenciais de Pagamento)
+Usada pelo painel como fallback/alternativa para credenciais de gateways de pagamento.
+- **Campos utilizados:**
+  - `id` (BigSerial)
+  - `provider` (Text - ex: 'infinitepay', 'mercadopago', 'stripe')
+  - `public_key` (Text)
+  - `access_token` (Text)
+  - `created_at` (Timestamp)
+  - `updated_at` (Timestamp)
+
+---
+
+### 3.8. Tabela `finances` (Custos, Despesas e Entradas)
+Usada no módulo financeiro do Painel de Controle para controle de fluxo de caixa, despesas operacionais e receitas.
 - **Campos utilizados:**
   - `id` (Text / UUID)
   - `title` (Text - Nome/Título da movimentação)
