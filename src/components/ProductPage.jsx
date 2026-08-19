@@ -23,11 +23,6 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
   const [quantity, setQuantity] = useState(1);
   const [addedSuccess, setAddedSuccess] = useState(false);
 
-  // Shipping Calculator state
-  const [cepInput, setCepInput] = useState('');
-  const [shippingCalculated, setShippingCalculated] = useState(false);
-  const [isShippingOpen, setIsShippingOpen] = useState(true);
-
   // Scroll to top when product changes
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -36,7 +31,6 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
       setSelectedSize(product.sizes?.[0] || 'P');
       setSelectedColor(product.colors?.[0] || { name: 'Padrão' });
       setQuantity(1);
-      setShippingCalculated(false);
     }
   }, [product]);
 
@@ -54,13 +48,6 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
     });
     setAddedSuccess(true);
     setTimeout(() => setAddedSuccess(false), 2000);
-  };
-
-  const handleCalculateShipping = (e) => {
-    e.preventDefault();
-    if (cepInput.trim().length >= 8) {
-      setShippingCalculated(true);
-    }
   };
 
   // Related products excluding current
@@ -453,7 +440,19 @@ export default function ProductPage({ product, allProducts, onAddToCart, onSelec
             </div>
 
             {/* Shipping Calculator Correios Component */}
-            <ShippingCalculator subtotal={product.price * quantity} />
+            <ShippingCalculator
+              subtotal={product.price * quantity}
+              cartItems={[{
+                id: product.id,
+                name: product.name,
+                price: product.price,
+                quantity: quantity,
+                weight_grams: product.weight_grams || product.weightGrams || product.weight || 300,
+                height_cm: product.height_cm || product.heightCm || product.height || 6,
+                width_cm: product.width_cm || product.widthCm || product.width || 11,
+                length_cm: product.length_cm || product.lengthCm || product.length || 16
+              }]}
+            />
 
             {/* Product Specifications & Description */}
             <div style={{

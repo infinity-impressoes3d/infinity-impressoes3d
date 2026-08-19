@@ -184,6 +184,11 @@ export default function ShippingCalculator({
                         </span>
                       )}
                     </div>
+                    {opt.deliveryText && (
+                      <div style={{ fontSize: '11px', color: '#888888', marginTop: '2px' }}>
+                        Chega em {opt.deliveryText}
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -21,6 +21,11 @@ export const PRODUCTS = [
     sku: "3D-PERNA-50CM",
     stock: "Pronta Entrega",
     freeShippingThreshold: 399.90,
+    weight_grams: 1600,
+    weightGrams: 1600,
+    height_cm: 20,
+    width_cm: 25,
+    length_cm: 45,
     description: "Estátua colecionável de alta presença com 50cm do Pernalonga modelo Gangster Peaky Blinders. Produzida em impressão 3D de altíssima resolução com detalhes minuciosos do terno, boina, arma e saco de dinheiro.",
     specs: [
       { label: "Altura", value: "50 cm" },
@@ -50,6 +55,11 @@ export const PRODUCTS = [
     sku: "3D-PATOLINO-PEAKY",
     stock: "Pronta Entrega",
     freeShippingThreshold: 399.90,
+    weight_grams: 800,
+    weightGrams: 800,
+    height_cm: 15,
+    width_cm: 15,
+    length_cm: 30,
     description: "Miniatura colecionável do Patolino Gangster Peaky Blinders com acabamento fino e pintura realista.",
     specs: [
       { label: "Altura", value: "30 cm" },
@@ -78,6 +88,11 @@ export const PRODUCTS = [
     sku: "3D-MONSTER-HOODIE",
     stock: "Em Estoque",
     freeShippingThreshold: 399.90,
+    weight_grams: 350,
+    weightGrams: 350,
+    height_cm: 18,
+    width_cm: 12,
+    length_cm: 12,
     description: "Porta lata com alça estilo moletom com capuz impresso em 3D de alta durabilidade. Encaixe perfeito para latas de 473ml com isolamento térmico.",
     specs: [
       { label: "Compatibilidade", value: "Latas de 473ml" },
@@ -106,6 +121,11 @@ export const PRODUCTS = [
     sku: "3D-MONSTER-CLAW",
     stock: "Em Estoque",
     freeShippingThreshold: 399.90,
+    weight_grams: 300,
+    weightGrams: 300,
+    height_cm: 16,
+    width_cm: 11,
+    length_cm: 11,
     description: "Copo porta lata formato Garra Monster Energy. Impresso em 3D com texturas esculpidas.",
     specs: [
       { label: "Compatibilidade", value: "Latas de 473ml" }
@@ -133,6 +153,11 @@ export const PRODUCTS = [
     sku: "3D-PORSCHE-GT3RS",
     stock: "Pronta Entrega",
     freeShippingThreshold: 399.90,
+    weight_grams: 400,
+    weightGrams: 400,
+    height_cm: 8,
+    width_cm: 15,
+    length_cm: 25,
     description: "Porta chaves de parede formato traseira Porsche 911 GT3 RS com 5 ganchos reforçados.",
     specs: [
       { label: "Ganchos", value: "5 Ganchos Reforçados" },
@@ -161,6 +186,11 @@ export const PRODUCTS = [
     sku: "3D-GOLF-GTI",
     stock: "Em Estoque",
     freeShippingThreshold: 399.90,
+    weight_grams: 350,
+    weightGrams: 350,
+    height_cm: 8,
+    width_cm: 12,
+    length_cm: 22,
     description: "Porta chaves de parede modelo Golf GTI MK7 com textura em fibra de carbono.",
     specs: [{ label: "Ganchos", value: "4 Ganchos" }]
   }
