@@ -34,7 +34,10 @@ export function handleImageError(e) {
 export function renderFormattedDescription(text) {
   if (!text) return null;
 
-  const lines = text.split('\n');
+  const cleanText = text.replace(/<!--PINNED-->/g, '').replace(/<!--METADATA:.*?-->/g, '').trim();
+  if (!cleanText) return null;
+
+  const lines = cleanText.split('\n');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', color: '#cccccc', fontSize: '13px', lineHeight: '1.6' }}>

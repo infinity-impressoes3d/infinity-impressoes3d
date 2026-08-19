@@ -79,8 +79,22 @@ export default function App() {
             const relCols = prodRels ? prodRels.filter(r => r.product_id === p.id).map(r => r.collection_id) : [];
             const allColIds = Array.from(new Set([...relCols, ...(p.collection_id ? [p.collection_id] : [])]));
 
-            const isPinned = Boolean(p.is_pinned || p.isPinned || (p.description && p.description.includes('<!--PINNED-->')));
-            const cleanDescription = (p.description || '').replace(/<!--PINNED-->/g, '').trim();
+            let meta = null;
+            try {
+              const metaMatch = (p.description || '').match(/<!--METADATA:(.*?)-->/);
+              if (metaMatch && metaMatch[1]) {
+                meta = JSON.parse(metaMatch[1]);
+              }
+            } catch (e) {}
+
+            const isPinned = Boolean(p.is_pinned || p.isPinned || (p.description && p.description.includes('<!--PINNED-->')) || meta?.pinned);
+            const isFreeShipping = Boolean(p.is_free_shipping || p.free_shipping || meta?.free);
+            const cleanDescription = (p.description || '').replace(/<!--PINNED-->/g, '').replace(/<!--METADATA:.*?-->/g, '').trim();
+
+            const height_cm = Number(p.height_cm ?? meta?.h ?? 6);
+            const width_cm = Number(p.width_cm ?? meta?.w ?? 11);
+            const length_cm = Number(p.length_cm ?? meta?.l ?? 16);
+            const weight_grams = Number(p.weight_grams ?? meta?.weight ?? 300);
 
             return {
               id: p.id,
@@ -89,11 +103,11 @@ export default function App() {
               description: cleanDescription,
               price: Number(p.price || 0),
               oldPrice: p.old_price ? Number(p.old_price) : (p.oldPrice ? Number(p.oldPrice) : (Number(p.price || 0) > 0 ? Number(p.price) * 1.2 : null)),
-              weightGrams: p.weight_grams || 300,
-              weight_grams: p.weight_grams || 300,
-              height_cm: p.height_cm || 6,
-              width_cm: p.width_cm || 11,
-              length_cm: p.length_cm || 16,
+              weightGrams: weight_grams,
+              weight_grams: weight_grams,
+              height_cm: height_cm,
+              width_cm: width_cm,
+              length_cm: length_cm,
               sizes: p.sizes && p.sizes.length > 0 ? p.sizes : [],
               image: p.images && p.images[0] ? p.images[0] : 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80',
               images: p.images && p.images.length > 0 ? p.images : ['https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80'],
@@ -102,7 +116,8 @@ export default function App() {
               rating: 5.0,
               reviewsCount: 12,
               isNew: true,
-              isPinned: isPinned
+              isPinned: isPinned,
+              is_free_shipping: isFreeShipping
             };
           });
 
